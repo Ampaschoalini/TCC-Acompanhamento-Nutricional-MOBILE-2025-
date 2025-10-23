@@ -24,8 +24,6 @@ class _PerfilPageState extends State<PerfilPage> {
   final _dataNascimentoController = TextEditingController();
   String? _genero; // espera 'M' ou 'F' do backend
 
-  final _alturaController = TextEditingController();
-  final _pesoController = TextEditingController();
   String? _objetivo;
   int _freqExercicio = 0;
   final _restricaoAlimentarController = TextEditingController();
@@ -60,8 +58,6 @@ class _PerfilPageState extends State<PerfilPage> {
         }
 
         _genero = (json['genero'] ?? '').toString();
-        _alturaController.text = (json['altura']?.toString() ?? '');
-        _pesoController.text = (json['peso']?.toString() ?? '');
         _objetivo = (json['objetivo'] ?? '') as String?;
 
         final freqStr = (json['frequencia_exercicio_semanal'] ?? '').toString();
@@ -99,8 +95,6 @@ class _PerfilPageState extends State<PerfilPage> {
       _emailController,
       _telefoneController,
       _dataNascimentoController,
-      _alturaController,
-      _pesoController,
       _restricaoAlimentarController,
       _alergiasController,
       _observacaoController,
@@ -198,9 +192,7 @@ class _PerfilPageState extends State<PerfilPage> {
                           _multiline('Objetivo', _observacaoController),
                           Row(
                             children: [
-                              Expanded(child: _text('Altura (cm)', _alturaController, keyboardType: TextInputType.number, prefixIcon: Icons.height)),
                               const SizedBox(width: 12),
-                              Expanded(child: _text('Peso (kg)', _pesoController, keyboardType: TextInputType.number, prefixIcon: Icons.monitor_weight_outlined)),
                             ],
                           ),
                           _sliderDias(
@@ -420,8 +412,6 @@ class _PerfilPageState extends State<PerfilPage> {
       'telefone': _telefoneController.text.trim(),
       'dataNascimento': dataISO,
       'genero': generoSql,
-      'altura': double.tryParse(_alturaController.text.replaceAll(',', '.')),
-      'peso': double.tryParse(_pesoController.text.replaceAll(',', '.')),
       'objetivo': _objetivo,
       'restricao_alimentar': _restricaoAlimentarController.text.trim(),
       'alergia': _alergiasController.text.trim(),

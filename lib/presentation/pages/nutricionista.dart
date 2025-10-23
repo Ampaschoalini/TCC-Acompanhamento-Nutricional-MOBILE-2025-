@@ -85,11 +85,7 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
                     child: CircleAvatar(
                       radius: 50,
                       backgroundColor: Colors.white,
-                      child: Icon(
-                        Icons.person,
-                        size: 60,
-                        color: const Color(0xFFEC8800),
-                      ),
+                      backgroundImage: const AssetImage('assets/images/Nutricionista.jpg'),
                     ),
                   ),
                 ),

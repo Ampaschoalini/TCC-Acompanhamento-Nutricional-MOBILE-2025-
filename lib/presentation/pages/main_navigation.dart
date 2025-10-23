@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:tcc_aplicativo_de_acompanhamento_nutricional/presentation/pages/alimentos_plano.dart';
+// Removido: import 'package:tcc_aplicativo_de_acompanhamento_nutricional/presentation/pages/alimentos_plano.dart';
 import 'plano_alimentar.dart';
 import 'relatorios.dart';
 import 'perfil.dart';
-import 'nutricionista.dart';
+import 'registro.dart';// <- NOVO
 
 class MainNavigationPage extends StatefulWidget {
   const MainNavigationPage({super.key});
@@ -15,12 +15,12 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int paginaAtual = 0;
 
-  final List<Widget> paginas = [
-    const PlanoAlimentarPage(),
-    const RelatoriosPage(),
-    const AlimentosPlanoPage(),
-    const PerfilPage(),
-    const NutricionistaPage(),
+  // Nova ordem: Plano, Registro, Relatórios, Perfil
+  final List<Widget> paginas = const [
+    PlanoAlimentarPage(),
+    RegistroPage(),
+    RelatoriosPage(),
+    PerfilPage(),
   ];
 
   @override
@@ -29,11 +29,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       body: paginas[paginaAtual],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: paginaAtual,
-        onTap: (index) {
-          setState(() {
-            paginaAtual = index;
-          });
-        },
+        onTap: (index) => setState(() => paginaAtual = index),
         selectedItemColor: const Color(0xFFEC8800),
         unselectedItemColor: const Color(0xFF999999),
         type: BottomNavigationBarType.fixed,
@@ -43,20 +39,16 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
             label: 'Plano',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.edit_note),
+            label: 'Registro',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.insert_chart_outlined_rounded),
             label: 'Relatórios',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.food_bank),
-            label: 'Alimentos',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.person),
             label: 'Perfil',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.medical_information),
-            label: 'Nutricionista',
           ),
         ],
       ),

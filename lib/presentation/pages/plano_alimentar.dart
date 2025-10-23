@@ -7,6 +7,11 @@ import '../../data/models/dieta.dart';
 import '../../data/models/refeicao.dart';
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/dieta_service.dart';
 
+// NOVOS IMPORTS PARA NAVEGAÇÃO VIA MENU LATERAL
+import 'relatorios.dart';
+import 'perfil.dart';
+import 'registro.dart';
+
 const Color kBg = Color(0xFFF5F5F5);
 const Color kPrimary = Color(0xFFEC8800);
 const Color kPrimarySoft = Color(0xFFFFB36B);
@@ -23,6 +28,9 @@ class PlanoAlimentarPage extends StatefulWidget {
 }
 
 class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
+  // KEY PARA CONTROLAR A ABERTURA DO DRAWER PELO BOTÃO DO APPBAR
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   String nomeUsuario = '';
   int pacienteId = 0;
 
@@ -231,15 +239,153 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     return total;
   }
 
+  // -----------------------------
+  // DRAWER (MENU LATERAL)
+  // -----------------------------
+  Drawer _buildAppDrawer(BuildContext context) {
+    return Drawer(
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            // Cabeçalho do Drawer com o branding e o usuário
+            DrawerHeader(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [kPrimary, kPrimarySoft],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const CircleAvatar(
+                    radius: 28,
+                    backgroundImage: AssetImage('assets/images/logo.png'),
+                    backgroundColor: Colors.white,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Menu',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                            )),
+                        const SizedBox(height: 4),
+                        Text(
+                          nomeUsuario.isEmpty ? 'Bem-vindo(a)' : nomeUsuario,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(.9),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Itens
+            ListTile(
+              leading: const Icon(Icons.restaurant_menu, color: kPrimary),
+              title: const Text('Plano'),
+              onTap: () {
+                Navigator.of(context).pop(); // fecha o drawer
+                // já está na tela de Plano
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note, color: kPrimary),
+              title: const Text('Registro'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RegistroPage()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_chart_outlined_rounded, color: kPrimary),
+              title: const Text('Relatórios'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RelatoriosPage()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.list_alt, color: kPrimary),
+              title: const Text('Alimentos'),
+              onTap: () {
+                Navigator.of(context).pop();
+                // Usamos rotas nomeadas para telas anteriores que podem estar em outros arquivos.
+                // Garanta no MaterialApp que a rota '/alimentos' esteja registrada.
+                Navigator.of(context).pushNamed('/alimentos');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.person, color: kPrimary),
+              title: const Text('Perfil'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PerfilPage()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.medical_information, color: kPrimary),
+              title: const Text('Perfil Nutricionista'),
+              onTap: () {
+                Navigator.of(context).pop();
+                // Rota nomeada para a tela de Perfil do Nutricionista (existente no app).
+                // Garanta no MaterialApp que a rota '/perfil-nutricionista' esteja registrada.
+                Navigator.of(context).pushNamed('/perfil-nutricionista');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dataSomenteDia = _dateOnly(dataSelecionada); // comparação inclusiva
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: kBg,
+
+      // APPBAR COM ÍCONE DE MENU NO CANTO SUPERIOR ESQUERDO
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: kPrimary),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          tooltip: 'Abrir menu',
+        ),
+        title: const Text(
+          'Plano',
+          style: TextStyle(
+            color: kText,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: false,
+      ),
+
+      // DRAWER LATERAL COM TODAS AS TELAS
+      drawer: _buildAppDrawer(context),
+
       body: SafeArea(
         child: Column(
           children: [
-            // Cabeçalho
+            // Cabeçalho (mantido)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Container(

@@ -1,17 +1,18 @@
+
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 
-// (Opcional) Se você já usa esses modelos/serviço no app, importe-os.
-// Com eles, conseguimos ler as kcal dos alimentos do plano para somar as "consumidas".
-import '../../data/models/dieta.dart';
+// === Modelos e serviço para ler dietas e calcular kcal por dia ===
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/dieta_service.dart';
+import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/models/dieta.dart';
+import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/models/refeicao.dart';
 
-// === Cores do seu tema (seguindo padrão definido antes) ===
+// === Cores do tema ===
 const Color kBg = Color(0xFFF5F5F5);
 const Color kPrimary = Color(0xFFEC8800);
 const Color kPrimarySoft = Color(0xFFFFB36B);
@@ -21,8 +22,20 @@ const Color kText = Color(0xFF444444);
 // Ajuste esta URL conforme o seu backend (ex.: http://10.0.2.2:3000 para emulador Android).
 const String kApiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8800');
 
+// As rotas abaixo são usadas apenas para LEITURA (GET) aqui.
+const List<String> kGetByIdPathVariants = [
+  '/patient/getPatientById/{id}',
+  '/patient/{id}',
+  '/patients/{id}',
+  '/api/patient/{id}',
+  '/api/patient/getPatientById/{id}',
+];
+
 // === Filtros de período ===
 enum Periodo { dia, semana, mes, ano }
+
+// Medidas exibidas em gráfico
+enum MedidaKind { cintura, quadril, braco, perna }
 
 final DateFormat _fmtDia = DateFormat('dd/MM/yyyy', 'pt_BR');
 final DateFormat _fmtMesAno = DateFormat('MM/yyyy', 'pt_BR');
@@ -36,13 +49,11 @@ class RelatoriosPage extends StatefulWidget {
 }
 
 class _RelatoriosPageState extends State<RelatoriosPage> {
-// === BEGIN: Helpers de normalização e IMC ===
-
-// Converte _altura para METROS: se > 3, assume cm; caso contrário, já está em m.
+  // === BEGIN: Helpers de normalização e IMC ===
   double? get _alturaMetros {
     if (_altura == null) return null;
     final a = _altura!;
-    return a > 3 ? a / 100.0 : a;
+    return a > 3 ? a / 100.0 : a; // se vier em cm, normaliza para m
   }
 
   double? get _alturaCentimetros {
@@ -51,113 +62,142 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     return aM * 100.0;
   }
 
-  String get _pesoFmtKg => _peso == null ? '--' : '${_peso!.toStringAsFixed(1)} kg';
-  String get _alturaFmtCm => _alturaCentimetros == null ? '--' : '${_alturaCentimetros!.toStringAsFixed(1)} cm';
-
-  // Recalcula IMC usando altura em METROS normalizada
   double? get _imc {
     if (_peso == null) return null;
     final aM = _alturaMetros;
     if (aM == null || aM == 0) return null;
     return _peso! / (aM * aM);
   }
+  // === END: Helpers ===
 
-// === END: Helpers de normalização e IMC ===
-
-  // -------------------- Estado / serviços --------------------
-  final DietaService _service = DietaService();
-  Future<List<Dieta>>? _dietasFuture;
-
+  // --- Estado geral ---
   Periodo _periodo = Periodo.dia;
-  DateTime _baseDate = DateTime.now().toLocal(); // data base do filtro (dia/semana/mês/ano)
+  DateTime _baseDate = DateTime.now().toLocal();
 
-  // Preferências do paciente
-  double? _peso;     // kg
-  double? _altura;   // metros (ou cm normalizado para m)
-  double? _cintura;  // cm
-  double? _quadril;  // cm
-  double? _braco;    // cm
-  double? _perna;    // cm
+  // Dados atuais do paciente (somente leitura nesta tela)
+  double? _peso; double? _altura;
+  int? _pacienteId;
+  String? _token;
 
-  // Meta (pode vir do nutricionista futuramente)
-  int metaKcal = 2000;
+  // Logs por dia (sobrepõe no mesmo dia)
+  Map<String, double> _pesoLogs = {};      // 'yyyy-MM-dd' -> kg
+  Map<String, double> _cinturaLogs = {};   // cm
+  Map<String, double> _quadrilLogs = {};   // cm
+  Map<String, double> _bracoLogs = {};     // cm
+  Map<String, double> _pernaLogs = {};     // cm
 
-  // --- Variáveis de estado para controlar o future do gráfico ---
-  Future<List<double>>? _kcalFuture;
-  String? _lastKcalFutureKey;
+  // Exibição do gráfico de medidas
+  MedidaKind _medidaSelecionada = MedidaKind.cintura;
+
+  // Dietas e cálculo de kcal consumidas por dia (com base nos checks do Plano Alimentar)
+  final DietaService _dietaService = DietaService();
+  List<Dieta> _dietas = const [];
 
   @override
   void initState() {
     super.initState();
     _carregarPreferenciasEApi();
+    _carregarDietas();
   }
 
   Future<void> _carregarPreferenciasEApi() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1) Carrega valores LOCAIS (fallback) — mantém compatibilidade
+    // Últimos valores conhecidos (gravados pela tela de Registro)
     _peso    = (prefs.getDouble('peso') ?? (prefs.getInt('peso')?.toDouble()));
     _altura  = (prefs.getDouble('altura') ?? (prefs.getInt('altura')?.toDouble()));
-    _cintura = (prefs.getDouble('med_cintura') ?? (prefs.getInt('med_cintura')?.toDouble()));
-    _quadril = (prefs.getDouble('med_quadril') ?? (prefs.getInt('med_quadril')?.toDouble()));
-    _braco   = (prefs.getDouble('med_braco') ?? (prefs.getInt('med_braco')?.toDouble()));
-    _perna   = (prefs.getDouble('med_perna') ?? (prefs.getInt('med_perna')?.toDouble()));
 
-    final pacienteId = prefs.getInt('paciente_id') ?? 0;
-    final token = prefs.getString('token'); // se você usa JWT
+    _pacienteId = prefs.getInt('paciente_id') ?? 0;
+    _token = prefs.getString('token');
 
-    // 2) Chama o serviço do PLANO alimentar
-    setState(() {
-      _dietasFuture = _service.getDietasByPacienteId(pacienteId);
-    });
+    // Carrega logs (gravados pela tela de Registro)
+    _pesoLogs     = _readLogsMap(prefs.getString('logs_peso'));
+    _cinturaLogs  = _readLogsMap(prefs.getString('logs_cintura'));
+    _quadrilLogs  = _readLogsMap(prefs.getString('logs_quadril'));
+    _bracoLogs    = _readLogsMap(prefs.getString('logs_braco'));
+    _pernaLogs    = _readLogsMap(prefs.getString('logs_perna'));
 
-    // 3) Busca dados ATUAIS do projeto WEB (peso, altura e medidas corporais)
+    // Tenta atualizar com dados do backend (LEITURA apenas)
     try {
-      await _carregarDadosDoWeb(pacienteId, token);
-    } catch (_) {
-      // Mantém os valores do fallback (SharedPreferences) se a API falhar
+      await _carregarDadosDoWeb(_pacienteId ?? 0, _token);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Falha ao carregar do WEB: $e');
     }
-    setState(() {});
+
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _carregarDietas() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final int pid = prefs.getInt('paciente_id') ?? (_pacienteId ?? 0) ?? 0;
+      if (pid == 0) return;
+      final dietas = await _dietaService.getDietasByPacienteId(pid);
+      if (mounted) setState(() => _dietas = dietas);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Falha ao carregar dietas: $e');
+    }
+  }
+
+  Map<String, double> _readLogsMap(String? raw) {
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final Map<String, dynamic> m = jsonDecode(raw);
+      return m.map((k, v) {
+        final dv = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0;
+        return MapEntry(k, dv);
+      });
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Map<String,String> _buildHeaders() {
+    final headers = <String, String>{'Content-Type': 'application/json; charset=utf-8'};
+    if (_token != null && _token!.isNotEmpty) headers['Authorization'] = 'Bearer $_token';
+    return headers;
+  }
+
+  Uri _composeUri(String path) => Uri.parse('$kApiBaseUrl$path');
+  String _applyId(String pattern, int id) => pattern.replaceAll('{id}', id.toString());
+
+  Future<Map<String, dynamic>?> _getPatientByIdSmart(int pacienteId) async {
+    if (pacienteId == 0) return null;
+    for (final pattern in kGetByIdPathVariants) {
+      final path = _applyId(pattern, pacienteId);
+      final uri = _composeUri(path);
+      try {
+        final resp = await http.get(uri, headers: _buildHeaders());
+        if (kDebugMode) debugPrint('GET ${uri.toString()} -> ${resp.statusCode}');
+        if (resp.statusCode == 200) {
+          final body = resp.body.isEmpty ? null : jsonDecode(resp.body);
+          if (body == null) return null;
+          if (body is List && body.isNotEmpty) {
+            return Map<String, dynamic>.from(body.first);
+          } else if (body is Map) {
+            return Map<String, dynamic>.from(body);
+          }
+        } else if (resp.statusCode == 404) {
+          continue;
+        } else {
+          break;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Erro GET $uri: $e');
+      }
+    }
+    return null;
   }
 
   Future<void> _carregarDadosDoWeb(int pacienteId, String? token) async {
-    if (pacienteId == 0) return;
+    final p = await _getPatientByIdSmart(pacienteId);
+    if (p == null) return;
 
-    final uri = Uri.parse('$kApiBaseUrl/patient/getPatientById/$pacienteId');
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (token != null && token.isNotEmpty) {
-      headers['Authorization'] = 'Bearer $token';
-    }
-
-    final resp = await http.get(uri, headers: headers);
-    if (resp.statusCode != 200) {
-      throw Exception('Falha ao buscar paciente: ${resp.statusCode}');
-    }
-
-    final body = resp.body;
-    if (body.isEmpty) return;
-    final data = jsonDecode(body);
-
-    // A API pode retornar um objeto ou lista; trate os dois casos
-    final Map<String, dynamic> p =
-    (data is List && data.isNotEmpty) ? Map<String, dynamic>.from(data.first) : Map<String, dynamic>.from(data as Map);
-
-    // Campos conforme o seu backend (vide updatePatientByIdService e schema):
-    // altura, peso, circunferencia_bracos, circunferencia_cintura, circunferencia_quadril, circunferencia_pernas
     final double? pesoApi    = _toDouble(p['peso']);
     final double? alturaApi  = _toDouble(p['altura']);
-    final double? bracos     = _toDouble(p['circunferencia_bracos']);
-    final double? cintura    = _toDouble(p['circunferencia_cintura']);
-    final double? quadril    = _toDouble(p['circunferencia_quadril']);
-    final double? pernas     = _toDouble(p['circunferencia_pernas']);
 
-    // Atualiza estado com dados do WEB (se existirem)
     if (pesoApi != null) _peso = pesoApi;
     if (alturaApi != null) _altura = alturaApi;
-    if (cintura != null) _cintura = cintura;
-    if (quadril != null) _quadril = quadril;
-    if (bracos != null) _braco = bracos;
-    if (pernas != null) _perna = pernas;
   }
 
   double? _toDouble(dynamic v) {
@@ -172,10 +212,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
 
   // -------------------- Helpers de data / período --------------------
   DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
-  DateTime _inicioDaSemana(DateTime d) {
-    final wd = d.weekday; // 1=Mon ... 7=Sun
-    return _dateOnly(d.subtract(Duration(days: wd - 1)));
-  }
+  DateTime _inicioDaSemana(DateTime d) { final wd = d.weekday; return _dateOnly(d.subtract(Duration(days: wd - 1))); }
   DateTime _fimDaSemana(DateTime d) => _inicioDaSemana(d).add(const Duration(days: 6));
   DateTime _inicioDoMes(DateTime d) => DateTime(d.year, d.month, 1);
   DateTime _fimDoMes(DateTime d) => DateTime(d.year, d.month + 1, 0);
@@ -183,34 +220,68 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   DateTime _fimDoAno(DateTime d) => DateTime(d.year, 12, 31);
 
   List<DateTime> _datasNoPeriodo(DateTime base, Periodo p) {
-    late DateTime ini;
-    late DateTime fim;
+    late DateTime ini; late DateTime fim;
     switch (p) {
-      case Periodo.dia:
-        ini = _dateOnly(base);
-        fim = _dateOnly(base);
-        break;
-      case Periodo.semana:
-        ini = _inicioDaSemana(base);
-        fim = _fimDaSemana(base);
-        break;
-      case Periodo.mes:
-        ini = _inicioDoMes(base);
-        fim = _fimDoMes(base);
-        break;
-      case Periodo.ano:
-        ini = _inicioDoAno(base);
-        fim = _fimDoAno(base);
-        break;
+      case Periodo.dia: ini = _dateOnly(base); fim = _dateOnly(base); break;
+      case Periodo.semana: ini = _inicioDaSemana(base); fim = _fimDaSemana(base); break;
+      case Periodo.mes: ini = _inicioDoMes(base); fim = _fimDoMes(base); break;
+      case Periodo.ano: ini = _inicioDoAno(base); fim = _fimDoAno(base); break;
     }
     final List<DateTime> lst = [];
-    for (DateTime d = ini; !d.isAfter(fim); d = d.add(const Duration(days: 1))) {
-      lst.add(d);
-    }
+    for (DateTime d = ini; !d.isAfter(fim); d = d.add(const Duration(days: 1))) { lst.add(d); }
     return lst;
   }
 
-  // -------------------- Chaves / normalização iguais à tela do Plano --------------------
+  // -------------------- Construção de SPOTS para gráficos --------------------
+  final Map<String, Map<String, bool>> _checksCache = {};
+  String _diaKey(DateTime d) => _keyFormatter.format(_dateOnly(d));
+
+  List<FlSpot> _spotsFromLog(Map<String, double> log, List<DateTime> datas) {
+    final List<FlSpot> spots = [];
+    for (int i = 0; i < datas.length; i++) {
+      final key = _diaKey(datas[i]);
+      final v = log[key];
+      if (v != null) {
+        spots.add(FlSpot(i.toDouble(), v));
+      }
+    }
+    return spots;
+  }
+
+  // Calcula min/max Y com folga
+  ({double minY, double maxY}) _rangeYFromSpots(List<FlSpot> spots, {double pad = 1}) {
+    if (spots.isEmpty) return (minY: 0, maxY: 1);
+    double minY = spots.first.y, maxY = spots.first.y;
+    for (final s in spots) {
+      if (s.y < minY) minY = s.y;
+      if (s.y > maxY) maxY = s.y;
+    }
+    if (minY == maxY) { minY -= 1; maxY += 1; }
+    return (minY: (minY - pad), maxY: (maxY + pad));
+  }
+
+  // === Série de kcal consumidas por dia (baseada nos checks do Plano Alimentar) ===
+
+  Future<Map<String, bool>> _loadChecksParaDia(DateTime dia) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('checks_${_diaKey(dia)}');
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final Map<String, dynamic> decoded = json.decode(raw);
+      return decoded.map((k, v) => MapEntry(k, v == true));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<Map<String, bool>> _getChecksMap(DateTime dia) async {
+    final dk = _diaKey(dia);
+    if (_checksCache.containsKey(dk)) return _checksCache[dk]!;
+    final loaded = await _loadChecksParaDia(dia);
+    _checksCache[dk] = loaded;
+    return loaded;
+  }
+
   String _normalizeTipo(String raw) {
     final v = raw.trim().toLowerCase();
     if (v.contains('lanche') && (v.contains('manhã') || v.contains('manha'))) return 'Lanche da manhã';
@@ -238,374 +309,457 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     return 't:$t|r:$rid|a:$a|n:$nome';
   }
 
-  Future<Map<String, bool>> _loadChecksParaDia(DateTime dia) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'checks_${_keyFormatter.format(_dateOnly(dia))}';
-    final raw = prefs.getString(key);
-    if (raw == null || raw.isEmpty) return {};
+  String _tipoFromRefeicao(Refeicao r) {
     try {
-      final decoded = Map<String, dynamic>.from(await Future.value(jsonDecode(raw)));
-      return decoded.map((k, v) => MapEntry(k, (v == true)));
+      final raw = (r.tipoRefeicao).toString();
+      return _normalizeTipo(raw);
     } catch (_) {
-      return {};
+      try {
+        final dyn = r as dynamic;
+        final raw2 = (dyn.tipo_refeicao ?? '').toString();
+        return _normalizeTipo(raw2);
+      } catch (_) {
+        return 'Outros';
+      }
     }
   }
 
-  // Soma kcal do dia com base no plano alimentar + checkboxes marcados
-  Future<double> _kcalConsumidasNoDia(DateTime dia, List<Dieta> dietas) async {
-    final checks = await _loadChecksParaDia(dia);
-    double total = 0;
+  int? _idFromRefeicao(Refeicao r) {
+    try {
+      return (r.id as int?);
+    } catch (_) {
+      try {
+        final dyn = r as dynamic;
+        return (dyn.refeicao_id as int?);
+      } catch (_) {
+        return null;
+      }
+    }
+  }
 
-    // Filtra dietas válidas para o dia
-    final validas = dietas.where((d) {
-      final i = d.dataInicio;
-      final f = d.dataTermino;
-      if (i == null || f == null) return false;
-      final di = _dateOnly(i);
-      final df = _dateOnly(f);
-      final d0 = _dateOnly(dia);
-      return !d0.isBefore(di) && !d0.isAfter(df);
+  Future<double> _kcalNoDia(DateTime dia) async {
+    if (_dietas.isEmpty) return 0;
+    final checks = await _getChecksMap(dia);
+    if (checks.isEmpty) return 0;
+
+    // filtra dietas válidas para o dia
+    final dOnly = _dateOnly(dia);
+    final dietasValidas = _dietas.where((d) {
+      final inicio = d.dataInicio;
+      final fim = d.dataTermino;
+      if (inicio == null || fim == null) return false;
+      final i = _dateOnly(inicio);
+      final f = _dateOnly(fim);
+      return !dOnly.isBefore(i) && !dOnly.isAfter(f);
     });
-    for (final d in validas) {
+
+    num total = 0;
+    for (final d in dietasValidas) {
       for (final r in d.refeicoes) {
-        final String tipo = () {
-          try { return _normalizeTipo((r.tipoRefeicao).toString()); } catch (_) {}
-          try { final dyn = r as dynamic; return _normalizeTipo((dyn.tipo_refeicao ?? '').toString()); } catch (_) {}
-          return 'Outros';
-        }();
-        final int? rid = () {
-          try { return (r.id as int?); } catch (_) {}
-          try { final dyn = r as dynamic; return (dyn.refeicao_id as int?); } catch (_) {}
-          return null;
-        }();
+        final String tipo = _tipoFromRefeicao(r);
+        final int? rid = _idFromRefeicao(r);
         final List alimentos = (r.alimentos as List?) ?? const [];
         for (final a in alimentos) {
           num? kcal;
           try { kcal = (a.calorias ?? a.kcal) as num?; } catch (_) {}
           if (kcal == null) continue;
           final key = _alimentoKey(tipo, rid, a);
-          if (checks[key] == true) total += kcal.toDouble();
+          if (checks[key] == true) total += kcal;
         }
       }
     }
-    return total;
+    return total.toDouble();
   }
 
-  // ---- IMC ----
-  String get _imcCategoria {
-    final v = _imc;
-    if (v == null) return 'Sem dados suficientes';
-    if (v < 18.5) return 'Abaixo do peso';
-    if (v < 25) return 'Peso normal';
-    if (v < 30) return 'Sobrepeso';
-    if (v < 35) return 'Obesidade grau I';
-    if (v < 40) return 'Obesidade grau II';
-    return 'Obesidade grau III';
+  Future<List<double>> _serieKcal(List<DateTime> datas) async {
+    final List<double> serie = [];
+    for (final d in datas) {
+      final v = await _kcalNoDia(d);
+      serie.add(v);
+    }
+    return serie;
   }
 
-  Color get _imcCor {
-    final v = _imc;
-    if (v == null) return Colors.grey;
-    if (v < 18.5) return Colors.blueGrey;
-    if (v < 25) return Colors.green;
-    if (v < 30) return Colors.orange;
-    if (v < 35) return Colors.deepOrange;
-    if (v < 40) return Colors.redAccent;
-    return Colors.red;
+  ({double minY, double maxY}) _rangeFromValues(List<double> values, {double pad = 20}) {
+    if (values.isEmpty) return (minY: 0, maxY: 100);
+    double minY = values.first, maxY = values.first;
+    for (final v in values) {
+      if (v < minY) minY = v;
+      if (v > maxY) maxY = v;
+    }
+    if (minY == maxY) { minY = 0; maxY = maxY + 100; }
+    return (minY: (minY - pad).clamp(0, double.infinity), maxY: (maxY + pad));
   }
 
   // -------------------- UI --------------------
   @override
   Widget build(BuildContext context) {
+    final datas = _datasNoPeriodo(_baseDate, _periodo);
+    final pesoSpots = _spotsFromLog(_pesoLogs, datas);
+    final ({double minY, double maxY}) pesoRange = _rangeYFromSpots(pesoSpots, pad: 0.5);
+
+    // medidas
+    final Map<MedidaKind, Map<String, double>> allLogs = {
+      MedidaKind.cintura: _cinturaLogs,
+      MedidaKind.quadril: _quadrilLogs,
+      MedidaKind.braco: _bracoLogs,
+      MedidaKind.perna: _pernaLogs,
+    };
+    final medidaSpots = _spotsFromLog(allLogs[_medidaSelecionada]!, datas);
+    final ({double minY, double maxY}) medidaRange = _rangeYFromSpots(medidaSpots, pad: 0.5);
+
     return Scaffold(
       backgroundColor: kBg,
       appBar: AppBar(
-        backgroundColor: kPrimary,
-        title: const Text('Relatórios', style: TextStyle(color: Colors.white)),
+        elevation: 0,
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(colors: [kPrimary, kPrimarySoft], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          ),
+        ),
+        title: Column(
+          children: const [
+            Text('Relatórios', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20, letterSpacing: .2)),
+            SizedBox(height: 2),
+            Text('Acompanhamento e métricas', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
       ),
       body: SafeArea(
-        child: FutureBuilder<List<Dieta>>(
-          future: _dietasFuture,
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator.adaptive(valueColor: AlwaysStoppedAnimation(kPrimary)));
-            }
-            if (snap.hasError) {
-              return Center(child: Text('Erro ao carregar dados: ${snap.error}'));
-            }
-
-            final dietas = snap.data ?? const <Dieta>[];
-            final datas = _datasNoPeriodo(_baseDate, _periodo);
-
-            // --- Lógica para criar/reutilizar o future do gráfico ---
-            final kcalFutureKey = "${_baseDate.toIso8601String()}-${_periodo.index}";
-            if (kcalFutureKey != _lastKcalFutureKey) {
-              _lastKcalFutureKey = kcalFutureKey;
-              _kcalFuture = () async {
-                final List<double> valores = [];
-                for (final d in datas) {
-                  valores.add(await _kcalConsumidasNoDia(d, dietas));
-                }
-                return valores;
-              }();
-            }
-
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                // -------------------- Filtro de período --------------------
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
-                    border: Border.all(color: const Color(0x11000000)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            // -------------------- Filtro de período (mantido) --------------------
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: _cardDeco(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Período', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
                     children: [
-                      const Text('Período', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          _chipPeriodo('Data', Periodo.dia),
-                          _chipPeriodo('Semana', Periodo.semana),
-                          _chipPeriodo('Mês', Periodo.mes),
-                          _chipPeriodo('Ano', Periodo.ano),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          const Icon(Icons.date_range, color: kPrimary),
-                          const SizedBox(width: 8),
-                          Expanded(child: Text(_labelPeriodo(), style: const TextStyle(fontWeight: FontWeight.w600))),
-                          TextButton.icon(
-                            onPressed: _pickPeriodoDate,
-                            icon: const Icon(Icons.edit_calendar_outlined),
-                            label: const Text('Alterar'),
-                          )
-                        ],
-                      ),
+                      _chipPeriodo('Data', Periodo.dia),
+                      _chipPeriodo('Semana', Periodo.semana),
+                      _chipPeriodo('Mês', Periodo.mes),
+                      _chipPeriodo('Ano', Periodo.ano),
                     ],
                   ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // -------------------- Peso / Altura lado a lado --------------------
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
-                    border: Border.all(color: const Color(0x11000000)),
-                  ),
-                  child: Row(
+                  const SizedBox(height: 10),
+                  Row(
                     children: [
-                      Expanded(
-                        child: _statTile(
-                          icon: Icons.monitor_weight_outlined,
-                          title: 'Peso (kg)',
-                          value: _pesoFmtKg,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _statTile(
-                          icon: Icons.height,
-                          title: 'Altura (cm)',
-                          value: _alturaFmtCm,
-                        ),
-                      ),
+                      const Icon(Icons.date_range, color: kPrimary),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_labelPeriodo(), style: const TextStyle(fontWeight: FontWeight.w600))),
+                      TextButton.icon(
+                        onPressed: _pickPeriodoDate,
+                        icon: const Icon(Icons.edit_calendar_outlined),
+                        label: const Text('Alterar'),
+                      )
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
 
-                // -------------------- IMC (valor + categoria) --------------------
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
-                    border: Border.all(color: const Color(0x11000000)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: _imcCor.withOpacity(.12),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: _imcCor.withOpacity(.35)),
-                        ),
-                        child: const Icon(Icons.favorite, color: kPrimary),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('IMC', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                            const SizedBox(height: 6),
-                            Text(_imc == null ? '--' : _imc!.toStringAsFixed(1),
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText)),
-                            const SizedBox(height: 4),
-                            Text(_imcCategoria,
-                                style: TextStyle(color: _imcCor, fontWeight: FontWeight.w600)),
-                          ],
-                        ),
-                      ),
+            // -------------------- Kcal consumidas por dia (gráfico) --------------------
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: _cardDeco(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.local_fire_department, color: kPrimary),
+                      SizedBox(width: 8),
+                      Text('Kcal consumidas por dia', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-
-                // -------------------- Medidas corporais --------------------
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
-                    border: Border.all(color: const Color(0x11000000)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Medidas corporais', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(child: _medidaCard(Icons.straighten, 'Cintura', _cm(_cintura))),
-                          const SizedBox(width: 10),
-                          Expanded(child: _medidaCard(Icons.accessibility_new, 'Quadril', _cm(_quadril))),
-                          const SizedBox(width: 10),
-                          Expanded(child: _medidaCard(Icons.fitness_center, 'Braço', _cm(_braco))),
-                          const SizedBox(width: 10),
-                          Expanded(child: _medidaCard(Icons.directions_walk, 'Perna', _cm(_perna))),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // -------------------- Gráfico de Kcal consumidas --------------------
-                FutureBuilder<List<double>>(
-                  future: _kcalFuture,
-                  builder: (context, kcalSnap) {
-                    if (kcalSnap.connectionState == ConnectionState.waiting) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16.0),
-                          child: CircularProgressIndicator.adaptive(valueColor: AlwaysStoppedAnimation(kPrimary)),
-                        ),
+                  const SizedBox(height: 10),
+                  FutureBuilder<List<double>>(
+                    future: _serieKcal(datas),
+                    builder: (context, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return _emptyChartPlaceholder('Calculando consumo de kcal...');
+                      }
+                      final values = snap.data ?? const <double>[];
+                      final bool allZero = values.isEmpty || values.every((v) => v == 0);
+                      if (allZero) {
+                        return _emptyChartPlaceholder('Sem consumo marcado no período selecionado.');
+                      }
+                      final range = _rangeFromValues(values);
+                      return SizedBox(
+                        height: 220,
+                        child: _buildBarChartKcal(datas, values, range),
                       );
-                    }
-                    if (!kcalSnap.hasData || kcalSnap.hasError) {
-                      return const Center(child: Text('Não foi possível carregar os dados do gráfico.'));
-                    }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
 
-                    final valores = kcalSnap.data!;
-                    final maxY = (valores.isEmpty ? 0 : (valores.reduce(math.max)));
-                    return Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
-                        border: Border.all(color: const Color(0x11000000)),
+            // -------------------- Peso (gráfico) --------------------
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: _cardDeco(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Peso diário (gráfico)', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                  const SizedBox(height: 10),
+                  if (pesoSpots.isEmpty)
+                    _emptyChartPlaceholder('Sem registros de peso neste período.\nCadastre pesos na aba Registro.'),
+                  if (pesoSpots.isNotEmpty)
+                    SizedBox(height: 220, child: _buildLineChart(datas, pesoSpots, pesoRange, unidade: 'kg')),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // -------------------- IMC (somente leitura) --------------------
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: _cardDeco(),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _imcCor.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _imcCor.withOpacity(.35)),
+                    ),
+                    child: const Icon(Icons.favorite, color: kPrimary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('IMC Atual', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                        const SizedBox(height: 6),
+                        Text(_imc == null ? '--' : _imc!.toStringAsFixed(1),
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText)),
+                        const SizedBox(height: 4),
+                        Text(_imcCategoria, style: TextStyle(color: _imcCor, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 6),
+                        Text(
+                          _alturaCentimetros == null ? 'Altura: --' : 'Altura: ${_alturaCentimetros!.toStringAsFixed(1)} cm',
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                        Text(
+                          _peso == null ? 'Peso: --' : 'Peso: ${_peso!.toStringAsFixed(1)} kg',
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // -------------------- Gráfico de medidas --------------------
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: _cardDeco(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Evolução das medidas (cm)', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: _medidaSelector(), // Wrap com os ChoiceChips
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Kcal consumidas', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            height: 220,
-                            child: LineChart(
-                              LineChartData(
-                                minY: 0,
-                                maxY: (maxY > metaKcal ? maxY : metaKcal).toDouble(),
-                                titlesData: FlTitlesData(
-                                  bottomTitles: AxisTitles(
-                                    sideTitles: SideTitles(
-                                      showTitles: true,
-                                      getTitlesWidget: (value, meta) {
-                                        final idx = value.toInt();
-                                        if (idx < 0 || idx >= datas.length) return const SizedBox.shrink();
-                                        final d = datas[idx];
-                                        return Text(
-                                          _periodo == Periodo.ano
-                                              ? DateFormat('MM', 'pt_BR').format(d)
-                                              : DateFormat('dd', 'pt_BR').format(d),
-                                          style: const TextStyle(fontSize: 10),
-                                        );
-                                      },
-                                      interval: 1,
-                                      reservedSize: 24,
-                                    ),
-                                  ),
-                                  leftTitles: AxisTitles(
-                                    sideTitles: SideTitles(showTitles: true, interval: 500, reservedSize: 32),
-                                  ),
-                                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                                ),
-                                gridData: FlGridData(show: true, drawHorizontalLine: true, horizontalInterval: 500),
-                                lineBarsData: [
-                                  LineChartBarData(
-                                    spots: [
-                                      for (int i = 0; i < valores.length; i++)
-                                        FlSpot(i.toDouble(), valores[i].toDouble()),
-                                    ],
-                                    isCurved: true,
-                                    dotData: const FlDotData(show: true),
-                                    color: kPrimary,
-                                    barWidth: 3,
-                                  ),
-                                ],
-                                // Linha da meta
-                                extraLinesData: ExtraLinesData(
-                                  horizontalLines: [
-                                    HorizontalLine(
-                                      y: metaKcal.toDouble(),
-                                      color: Colors.redAccent,
-                                      strokeWidth: 1.5,
-                                      dashArray: [6, 3],
-                                      label: HorizontalLineLabel(
-                                        show: true,
-                                        alignment: Alignment.topLeft,
-                                        labelResolver: (_) => 'Meta ${metaKcal}kcal',
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ],
-            );
-          },
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Builder(builder: (_) {
+                    if (medidaSpots.isEmpty) {
+                      return _emptyChartPlaceholder('Sem registros para esta medida.\nCadastre medidas na aba Registro.');
+                    }
+                    return SizedBox(height: 200, child: _buildLineChart(datas, medidaSpots, medidaRange, unidade: 'cm'));
+                  }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
         ),
       ),
     );
   }
 
   // -------------------- Widgets auxiliares --------------------
+  BoxDecoration _cardDeco() => BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(16),
+    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
+    border: Border.all(color: const Color(0x11000000)),
+  );
+
+  Widget _emptyChartPlaceholder(String msg) {
+    return Container(
+      height: 180,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F8F8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0x11000000)),
+      ),
+      child: Text(msg, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+    );
+  }
+
+  Widget _buildLineChart(List<DateTime> datas, List<FlSpot> spots, ({double minY, double maxY}) range, {required String unidade}) {
+    return LineChart(
+      LineChartData(
+        minY: range.minY,
+        maxY: range.maxY,
+        titlesData: FlTitlesData(
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) {
+                final idx = value.toInt();
+                if (idx < 0 || idx >= datas.length) return const SizedBox.shrink();
+                final d = datas[idx];
+                return Text(
+                  _periodo == Periodo.ano ? DateFormat('MM', 'pt_BR').format(d) : DateFormat('dd', 'pt_BR').format(d),
+                  style: const TextStyle(fontSize: 10),
+                );
+              },
+              interval: 1,
+              reservedSize: 22,
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: true, reservedSize: 44),
+          ),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        ),
+        gridData: FlGridData(show: true, drawHorizontalLine: true),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            dotData: const FlDotData(show: true),
+            color: kPrimary,
+            barWidth: 3,
+          ),
+        ],
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (touchedSpots) => touchedSpots.map((it) {
+              final idx = it.x.toInt();
+              final d = datas[idx];
+              final labelData = DateFormat('dd/MM', 'pt_BR').format(d);
+              return LineTooltipItem('$labelData\n${it.y.toStringAsFixed(1)} $unidade', const TextStyle(color: Colors.white));
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // gráfico de barras de kcal por dia
+  Widget _buildBarChartKcal(List<DateTime> datas, List<double> valores, ({double minY, double maxY}) range) {
+    return BarChart(
+      BarChartData(
+        minY: range.minY,
+        maxY: range.maxY,
+        gridData: FlGridData(show: true, drawVerticalLine: false),
+        titlesData: FlTitlesData(
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: true, reservedSize: 44),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: 1,
+              reservedSize: 24,
+              getTitlesWidget: (value, meta) {
+                final idx = value.toInt();
+                if (idx < 0 || idx >= datas.length) return const SizedBox.shrink();
+                final d = datas[idx];
+                return Text(
+                  _periodo == Periodo.ano ? DateFormat('MM', 'pt_BR').format(d) : DateFormat('dd', 'pt_BR').format(d),
+                  style: const TextStyle(fontSize: 10),
+                );
+              },
+            ),
+          ),
+        ),
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final d = datas[group.x.toInt()];
+              final label = DateFormat('dd/MM', 'pt_BR').format(d);
+              final v = rod.toY;
+              return BarTooltipItem('$label\n${v.toStringAsFixed(0)} kcal', const TextStyle(color: Colors.white));
+            },
+          ),
+        ),
+        barGroups: List.generate(valores.length, (i) {
+          return BarChartGroupData(
+            x: i,
+            barRods: [
+              BarChartRodData(
+                toY: valores[i],
+                width: 12,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                color: kPrimary,
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _medidaSelector() {
+    String label(MedidaKind k) {
+      switch (k) {
+        case MedidaKind.cintura: return 'Cintura';
+        case MedidaKind.quadril: return 'Quadril';
+        case MedidaKind.braco:   return 'Braço';
+        case MedidaKind.perna:   return 'Perna';
+      }
+    }
+
+    return Wrap(
+      spacing: 6,
+      children: MedidaKind.values.map((k) {
+        final selected = _medidaSelecionada == k;
+        return ChoiceChip(
+          label: Text(label(k)),
+          selected: selected,
+          onSelected: (_) => setState(() => _medidaSelecionada = k),
+          selectedColor: kPrimarySoft,
+          labelStyle: TextStyle(color: selected ? Colors.white : kText, fontWeight: FontWeight.w600),
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0x11000000)),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _chipPeriodo(String label, Periodo p) {
     final selected = _periodo == p;
     return ChoiceChip(
@@ -647,59 +801,26 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     if (picked != null) setState(() => _baseDate = picked);
   }
 
-  Widget _statTile({required IconData icon, required String title, required String value}) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: Colors.white,
-        border: Border.all(color: const Color(0x11000000)),
-        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0,2))],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: kPrimary.withOpacity(.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: kPrimary),
-          ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: kText)),
-              const SizedBox(height: 4),
-              Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kText)),
-            ],
-          ),
-        ],
-      ),
-    );
+  // --- IMC helpers ---
+  String get _imcCategoria {
+    final v = _imc;
+    if (v == null) return 'Sem dados suficientes';
+    if (v < 18.5) return 'Abaixo do peso';
+    if (v < 25) return 'Peso normal';
+    if (v < 30) return 'Sobrepeso';
+    if (v < 35) return 'Obesidade grau I';
+    if (v < 40) return 'Obesidade grau II';
+    return 'Obesidade grau III';
   }
 
-  Widget _medidaCard(IconData icon, String titulo, String valor) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: Colors.white,
-        border: Border.all(color: const Color(0x11000000)),
-        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0,2))],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: kPrimary),
-          const SizedBox(height: 6),
-          Text(titulo, style: const TextStyle(fontWeight: FontWeight.w700, color: kText)),
-          const SizedBox(height: 4),
-          Text(valor, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kText)),
-        ],
-      ),
-    );
+  Color get _imcCor {
+    final v = _imc;
+    if (v == null) return Colors.grey;
+    if (v < 18.5) return Colors.blueGrey;
+    if (v < 25) return Colors.green;
+    if (v < 30) return Colors.orange;
+    if (v < 35) return Colors.deepOrange;
+    if (v < 40) return Colors.redAccent;
+    return Colors.red;
   }
-
-  String _cm(double? v) => v == null ? '--' : '${v.toStringAsFixed(1)} cm';
 }
