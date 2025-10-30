@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import '../../data/services/paciente_api.dart';
 
@@ -140,23 +141,33 @@ class _PerfilPageState extends State<PerfilPage> {
       ),
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor: const Color(0xFF2C2C2C),
           elevation: 0,
-          title: const Text('Editar Perfil', style: TextStyle(color: Colors.white)),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: kPrimary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                onPressed: _salvarAlteracoes,
-                icon: const Icon(Icons.save_rounded),
-                label: const Text('Salvar'),
+          centerTitle: true,
+          backgroundColor: Colors.transparent,
+          flexibleSpace: Container(
+            // === Cabeçalho atualizado para combinar com a tela de "Registro" ===
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFFEC8800), Color(0xFFFFB36B)], // kPrimary, kPrimarySoft
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
+          ),
+          title: const Text(
+            'Perfil',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Salvar',
+              onPressed: _salvarAlteracoes,
+              icon: const Icon(Icons.save_rounded, color: Colors.white),
+            ),
+            const SizedBox(width: 6),
           ],
         ),
         body: LayoutBuilder(
@@ -169,7 +180,7 @@ class _PerfilPageState extends State<PerfilPage> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
                     children: [
-                      _headerCard(),
+                      _headerCard(), // <-- Agora com a foto do perfil
                       const SizedBox(height: 16),
 
                       // 1) Informações Pessoais
@@ -242,6 +253,7 @@ class _PerfilPageState extends State<PerfilPage> {
 
   // --- Widgets auxiliares ---
   Widget _headerCard() {
+    // Cabeçalho com foto do perfil (assets/images/Paciente.jpg) + dados resumidos
     return Card(
       elevation: 1.5,
       margin: const EdgeInsets.only(bottom: 12),
@@ -258,27 +270,59 @@ class _PerfilPageState extends State<PerfilPage> {
         ),
         padding: const EdgeInsets.all(16),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // Avatar com anel decorativo
             Container(
-              width: 56,
-              height: 56,
+              padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
-                color: kPrimary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [kPrimary, Color(0xFFFFC37A)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
               ),
-              child: const Icon(Icons.badge_outlined, size: 28, color: kPrimary),
+              child: CircleAvatar(
+                radius: 40,
+                backgroundImage: const AssetImage('assets/images/Paciente.jpg'),
+                backgroundColor: kPrimary.withOpacity(0.08),
+                // Caso a imagem não esteja registrada no pubspec, o CircleAvatar exibe um fundo.
+              ),
             ),
-            const SizedBox(width: 12),
-            const Expanded(
+            const SizedBox(width: 16),
+            // Informações de título + subtítulo
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Dados do Paciente', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kText)),
-                  SizedBox(height: 2),
-                  Text('Mantenha seu cadastro atualizado para um melhor acompanhamento clínico.', style: TextStyle(fontSize: 13, color: Color(0xFF6D6D6D))),
+                  const Text(
+                    'Dados do Paciente',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kText),
+                  ),
+                  const SizedBox(height: 6),
+                  // Nome e e-mail do controller (somente visual, não editável aqui)
+                  Text(
+                    _nomeController.text.isNotEmpty ? _nomeController.text : '—',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF2C2C2C)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _emailController.text.isNotEmpty ? _emailController.text : '—',
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF6D6D6D)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Mantenha seu cadastro atualizado para um melhor acompanhamento clínico.',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF6D6D6D)),
+                  ),
                 ],
               ),
-            )
+            ),
           ],
         ),
       ),
@@ -376,7 +420,7 @@ class _PerfilPageState extends State<PerfilPage> {
   String? _required(String? v) => (v == null || v.trim().isEmpty) ? 'Campo obrigatório' : null;
   String? _emailValidator(String? v) {
     if (v == null || v.trim().isEmpty) return 'Campo obrigatório';
-    final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+').hasMatch(v.trim());
+    final ok = RegExp(r'^[^@\\s]+@[^@\\s]+\\.[^@\\s]+').hasMatch(v.trim());
     return ok ? null : 'Email inválido';
   }
 
@@ -450,6 +494,37 @@ class _PerfilPageState extends State<PerfilPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            // Regras dinâmicas com base no texto atual
+            final pwd = newCtrl.text;
+            final hasUpper = RegExp(r'[A-Z]').hasMatch(pwd);
+            final hasLower = RegExp(r'[a-z]').hasMatch(pwd);
+            final hasDigit = RegExp(r'\d').hasMatch(pwd);
+            final hasSpecial = RegExp(r'[^A-Za-z0-9]').hasMatch(pwd);
+            final hasLen = pwd.length >= 8;
+
+            Widget ruleRow(bool ok, String text) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    Icon(ok ? Icons.check_circle : Icons.radio_button_unchecked,
+                        size: 18, color: ok ? Colors.green : const Color(0xFF9E9E9E)),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        text,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: ok ? Colors.green : const Color(0xFF6D6D6D),
+                          fontWeight: ok ? FontWeight.w600 : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
             return AlertDialog(
               title: const Text('Alterar Senha'),
               content: Form(
@@ -463,7 +538,8 @@ class _PerfilPageState extends State<PerfilPage> {
                       style: const TextStyle(color: kText),
                       decoration: InputDecoration(
                         labelText: 'Nova senha',
-                        helperText: 'Mínimo 8 caracteres, com letras e números.',
+                        // Instrução resumida; a lista detalhada vem abaixo
+                        helperText: 'Deve atender às regras abaixo.',
                         prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF9E9E9E)),
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => showNew = !showNew),
@@ -471,15 +547,35 @@ class _PerfilPageState extends State<PerfilPage> {
                         ),
                         filled: true,
                       ),
+                      onChanged: (_) => setState(() {}), // atualiza a lista de regras em tempo real
                       validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Campo obrigatório';
-                        if (v.trim().length < 8) return 'Mínimo 8 caracteres';
-                        final hasLetter = RegExp(r'[A-Za-z]').hasMatch(v);
-                        final hasNumber = RegExp(r'\d').hasMatch(v);
-                        if (!hasLetter || !hasNumber) return 'Inclua letras e números';
+                        final value = (v ?? '');
+                        if (value.isEmpty) return 'Campo obrigatório';
+                        if (value.length < 8) return 'Mínimo 8 caracteres';
+                        if (!RegExp(r'[A-Z]').hasMatch(value)) return 'Inclua ao menos 1 letra maiúscula';
+                        if (!RegExp(r'[a-z]').hasMatch(value)) return 'Inclua ao menos 1 letra minúscula';
+                        if (!RegExp(r'\d').hasMatch(value)) return 'Inclua ao menos 1 número';
+                        if (!RegExp(r'[^A-Za-z0-9]').hasMatch(value)) return 'Inclua ao menos 1 caractere especial';
                         return null;
                       },
                     ),
+
+                    // Lista de regras que ficam verdes conforme o usuário digita
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ruleRow(hasLen, 'Pelo menos 8 caracteres'),
+                          ruleRow(hasUpper, 'Pelo menos 1 letra maiúscula (A–Z)'),
+                          ruleRow(hasLower, 'Pelo menos 1 letra minúscula (a–z)'),
+                          ruleRow(hasDigit, 'Pelo menos 1 número (0–9)'),
+                          ruleRow(hasSpecial, 'Pelo menos 1 caractere especial (!@#\$% ...)'),
+                        ],
+                      ),
+                    ),
+
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: confirmCtrl,
@@ -566,7 +662,7 @@ class _PerfilPageState extends State<PerfilPage> {
     if (input == null || input.isEmpty) return null;
     try {
       final sanitized = input.contains('T') ? input.split('T').first : input;
-      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(sanitized)) {
+      if (RegExp(r'^\\d{4}-\\d{2}-\\d{2}\$').hasMatch(sanitized)) {
         final p = sanitized.split('-');
         return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
       }

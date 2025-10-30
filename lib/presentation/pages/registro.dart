@@ -303,6 +303,56 @@ class _RegistroPageState extends State<RegistroPage> {
     if (ok) setState(() {});
   }
 
+
+  Future<void> _registrarTudo() async {
+    // Parse dos campos
+    final pesoParsed = _toDouble(_pesoCtrl.text);
+    final alturaCmParsed = _toDouble(_alturaCmCtrl.text);
+    final cinturaParsed = _toDouble(_cinturaCtrl.text);
+    final quadrilParsed = _toDouble(_quadrilCtrl.text);
+    final bracoParsed = _toDouble(_bracoCtrl.text);
+    final pernaParsed = _toDouble(_pernaCtrl.text);
+
+    // Monta payload apenas com valores válidos
+    final Map<String, dynamic> payload = {};
+    if (pesoParsed != null) payload['peso'] = pesoParsed;
+    if (alturaCmParsed != null) payload['altura'] = alturaCmParsed / 100.0; // cm -> m
+    if (cinturaParsed != null) payload['circunferencia_cintura'] = cinturaParsed;
+    if (quadrilParsed != null) payload['circunferencia_quadril'] = quadrilParsed;
+    if (bracoParsed != null) payload['circunferencia_bracos'] = bracoParsed;
+    if (pernaParsed != null) payload['circunferencia_pernas'] = pernaParsed;
+
+    if (payload.isEmpty) {
+      _showSnack('Preencha ao menos um campo para registrar.', error: true);
+      return;
+    }
+
+    // Registra logs locais por data selecionada
+    if (pesoParsed != null) {
+      await _registrarPesoNoDia(_dataRegistro, pesoParsed);
+    }
+    if (cinturaParsed != null) {
+      await _registrarMedidaNoDia(MedidaKind.cintura, _dataRegistro, cinturaParsed);
+    }
+    if (quadrilParsed != null) {
+      await _registrarMedidaNoDia(MedidaKind.quadril, _dataRegistro, quadrilParsed);
+    }
+    if (bracoParsed != null) {
+      await _registrarMedidaNoDia(MedidaKind.braco, _dataRegistro, bracoParsed);
+    }
+    if (pernaParsed != null) {
+      await _registrarMedidaNoDia(MedidaKind.perna, _dataRegistro, pernaParsed);
+    }
+
+    // Chama backend em uma única atualização
+    final ok = await _atualizarPaciente(payload);
+    if (ok) {
+      setState(() {});
+      _showSnack('Medidas registradas com sucesso!');
+    }
+  }
+
+
   // -------------------- UI --------------------
   @override
   Widget build(BuildContext context) {
@@ -325,93 +375,106 @@ class _RegistroPageState extends State<RegistroPage> {
           children: [
             // -------------------- Escolha da data do registro --------------------
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: _cardDeco(),
-              child: Row(
-                children: [
-                  const Icon(Icons.edit_calendar_outlined, color: kPrimary),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text('Data do registro: ${_fmtDia.format(_dataRegistro)}', style: const TextStyle(fontWeight: FontWeight.w700, color: kText))),
-                  TextButton(
-                    onPressed: () async {
-                      final DateTime? picked = await showDatePicker(
-                        context: context,
-                        initialDate: _dataRegistro,
-                        firstDate: DateTime(2020, 1, 1),
-                        lastDate: DateTime(2100, 12, 31),
-                        helpText: 'Selecione a data do registro',
-                        confirmText: 'OK',
-                        cancelText: 'Cancelar',
-                      );
-                      if (picked != null) setState(() => _dataRegistro = picked);
-                    },
-                    child: const Text('Alterar'),
-                  )
-                ],
-              ),
+                padding: const EdgeInsets.all(12),
+                decoration: _cardDeco(),
+                child: Row(
+                    children: [
+                      const Icon(Icons.edit_calendar_outlined, color: kPrimary),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text('Data do registro: ${_fmtDia.format(_dataRegistro)}', style: const TextStyle(fontWeight: FontWeight.w700, color: kText))),
+                      TextButton(
+                        onPressed: () async {
+                          final DateTime? picked = await showDatePicker(
+                            context: context,
+                            initialDate: _dataRegistro,
+                            firstDate: DateTime(2020, 1, 1),
+                            lastDate: DateTime(2100, 12, 31),
+                            helpText: 'Selecione a data do registro',
+                            confirmText: 'OK',
+                            cancelText: 'Cancelar',
+                          );
+                          if (picked != null) setState(() => _dataRegistro = picked);
+                        },
+                        child: const Text('Alterar'),
+                      )
+                    ]
+                )
             ),
             const SizedBox(height: 16),
 
             // -------------------- Altura --------------------
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: _cardDeco(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Altura', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                  const SizedBox(height: 10),
-                  _editableStatTile(
-                    icon: Icons.height,
-                    title: 'Altura (cm)',
-                    controller: _alturaCmCtrl,
-                    suffix: 'cm',
-                    onSave: _salvarAlturaCm,
-                  ),
-                ],
-              ),
+                padding: const EdgeInsets.all(12),
+                decoration: _cardDeco(),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Altura', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                      const SizedBox(height: 10),
+                      _editableStatTile(
+                        icon: Icons.height,
+                        title: 'Altura (cm)',
+                        controller: _alturaCmCtrl,
+                        suffix: 'cm',
+                      ),
+                    ]
+                )
             ),
             const SizedBox(height: 16),
 
             // -------------------- Peso --------------------
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: _cardDeco(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Peso', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                  const SizedBox(height: 10),
-                  _editableStatTile(
-                    icon: Icons.monitor_weight_outlined,
-                    title: 'Peso (kg) — será registrado na data escolhida',
-                    controller: _pesoCtrl,
-                    suffix: 'kg',
-                    onSave: _salvarPeso,
-                  ),
-                ],
-              ),
+                padding: const EdgeInsets.all(12),
+                decoration: _cardDeco(),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Peso', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                      const SizedBox(height: 10),
+                      _editableStatTile(
+                        icon: Icons.monitor_weight_outlined,
+                        title: 'Peso (kg) — será registrado na data escolhida',
+                        controller: _pesoCtrl,
+                        suffix: 'kg',
+                      ),
+                    ]
+                )
             ),
             const SizedBox(height: 16),
 
             // -------------------- Medidas corporais --------------------
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: _cardDeco(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Medidas corporais (cm)', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                  const SizedBox(height: 10),
-                  _editableMedidaCard(Icons.straighten, 'Cintura (cm)', _cinturaCtrl, onSave: _salvarCintura),
-                  const SizedBox(height: 10),
-                  _editableMedidaCard(Icons.accessibility_new, 'Quadril (cm)', _quadrilCtrl, onSave: _salvarQuadril),
-                  const SizedBox(height: 10),
-                  _editableMedidaCard(Icons.fitness_center, 'Braço (cm)', _bracoCtrl, onSave: _salvarBraco),
-                  const SizedBox(height: 10),
-                  _editableMedidaCard(Icons.directions_walk, 'Perna (cm)', _pernaCtrl, onSave: _salvarPerna),
-                ],
-              ),
+                padding: const EdgeInsets.all(12),
+                decoration: _cardDeco(),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Medidas corporais (cm)', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                      const SizedBox(height: 10),
+                      _editableMedidaCard(Icons.straighten, 'Cintura (cm)', _cinturaCtrl),
+                      const SizedBox(height: 10),
+                      _editableMedidaCard(Icons.accessibility_new, 'Quadril (cm)', _quadrilCtrl),
+                      const SizedBox(height: 10),
+                      _editableMedidaCard(Icons.fitness_center, 'Braço (cm)', _bracoCtrl),
+                      const SizedBox(height: 10),
+                      _editableMedidaCard(Icons.directions_walk, 'Perna (cm)', _pernaCtrl),
+                    ]
+                )
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('Registrar medidas'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      backgroundColor: kPrimary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _registrarTudo
+                )
             ),
             const SizedBox(height: 24),
           ],
@@ -432,9 +495,7 @@ class _RegistroPageState extends State<RegistroPage> {
     required IconData icon,
     required String title,
     required TextEditingController controller,
-    required String suffix,
-    required Future<void> Function() onSave,
-  }) {
+    required String suffix,}) {
     return Container(
       padding: const EdgeInsets.all(12),
       margin: EdgeInsets.zero,
@@ -445,52 +506,45 @@ class _RegistroPageState extends State<RegistroPage> {
         boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0,2))],
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: kPrimary.withOpacity(.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: kPrimary),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                const SizedBox(height: 4),
-                SizedBox(
-                  height: 42,
-                  child: TextField(
-                    controller: controller,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      suffixText: suffix,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onSubmitted: (_) => onSave(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            tooltip: 'Salvar',
-            onPressed: onSave,
-            icon: const Icon(Icons.save_outlined, color: kPrimary),
-          ),
-        ],
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+      Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: kPrimary.withOpacity(.12),
+        borderRadius: BorderRadius.circular(10),
       ),
+      child: Icon(icon, color: kPrimary),
+    ),
+    const SizedBox(width: 10),
+    Expanded(
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: kText)),
+    const SizedBox(height: 4),
+    SizedBox(
+    height: 42,
+    child: TextField(
+    controller: controller,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+    isDense: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    suffixText: suffix,
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+    onSubmitted: (_){},
+    ),
+    ),
+    ],
+    ),
+    )
+    ],),
     );
   }
 
-  Widget _editableMedidaCard(IconData icon, String titulo, TextEditingController controller, {required Future<void> Function() onSave}) {
+  Widget _editableMedidaCard(IconData icon, String titulo, TextEditingController controller) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -500,37 +554,33 @@ class _RegistroPageState extends State<RegistroPage> {
         boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 6, offset: Offset(0, 2))],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
           Row(
-            children: [
-              Icon(icon, color: kPrimary),
-              const SizedBox(width: 8),
-              Expanded(child: Text(titulo, style: const TextStyle(fontWeight: FontWeight.w700, color: kText))),
-              IconButton(
-                tooltip: 'Salvar',
-                onPressed: onSave,
-                icon: const Icon(Icons.save_outlined, color: kPrimary),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 42,
-            child: TextField(
-              controller: controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                suffixText: 'cm',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onSubmitted: (_) => onSave(),
-            ),
-          ),
-        ],
-      ),
+          children: [
+          Icon(icon, color: kPrimary),
+      const SizedBox(width: 8),
+      Expanded(child: Text(titulo, style: const TextStyle(fontWeight: FontWeight.w700, color: kText))),
+
+      ],
+    ),
+    const SizedBox(height: 6),
+    SizedBox(
+    height: 42,
+    child: TextField(
+    controller: controller,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+    isDense: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    suffixText: 'cm',
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))
+    ),
+    onSubmitted: (_){},
+    ),
+    ),
+    ],
+    ),
     );
   }
 

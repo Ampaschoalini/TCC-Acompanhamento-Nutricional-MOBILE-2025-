@@ -1,13 +1,16 @@
 
 import 'package:flutter/material.dart';
+import 'alimentos_plano.dart';
+import 'nutricionista.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import 'package:fl_chart/fl_chart.dart';
 import '../../data/models/dieta.dart';
 import '../../data/models/refeicao.dart';
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/dieta_service.dart';
 
-// NOVOS IMPORTS PARA NAVEGAÇÃO VIA MENU LATERAL
+// IMPORTS PARA NAVEGAÇÃO VIA MENU LATERAL
 import 'relatorios.dart';
 import 'perfil.dart';
 import 'registro.dart';
@@ -34,7 +37,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
   String nomeUsuario = '';
   int pacienteId = 0;
 
-  DateTime dataSelecionada = DateTime.now();
+  DateTime dataSelecionada = (DateTime.now().toLocal());
   final DietaService _service = DietaService();
   Future<List<Dieta>>? _dietasFuture;
 
@@ -43,6 +46,9 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
 
   /// Cache de checkboxes por dia (chave do dia -> mapa de chaveDoAlimento -> marcado)
   final Map<String, Map<String, bool>> _checksCache = {};
+
+  /// logs de peso salvos pela tela de Registro (mapa 'yyyy-MM-dd' -> kg)
+  Map<String, double> _pesoLogs = {};
 
   @override
   void initState() {
@@ -83,10 +89,59 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     return loaded;
   }
 
+  // -----------------------------
+  // Persistência da OPÇÃO selecionada por refeição (ex.: opção 1/2/3)
+  // -----------------------------
+  String _selIdxKey(DateTime d) => 'selidx_${_diaKey(d)}';
+
+  Future<Map<String, int>> _loadSelecaoParaDia(DateTime dia) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_selIdxKey(dia));
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final Map<String, dynamic> decoded = json.decode(raw);
+      final Map<String, int> map = {};
+      decoded.forEach((k, v) {
+        int? asInt;
+        if (v is int) {
+          asInt = v;
+        } else {
+          try { asInt = int.parse(v.toString()); } catch (_) {}
+        }
+        if (asInt != null) map[k] = asInt;
+      });
+      return map;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _saveSelecaoParaDia(DateTime dia, Map<String, int> mapa) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_selIdxKey(dia), json.encode(mapa));
+  }
+
+  Future<void> _persistSelecionadoParaDiaAtual(String tipo, int idx) async {
+    // Carrega o mapa atual, atualiza o tipo e salva
+    final atual = await _loadSelecaoParaDia(dataSelecionada);
+    atual[tipo] = idx;
+    await _saveSelecaoParaDia(dataSelecionada, atual);
+  }
+
+  Future<void> _loadSelecaoDoDiaAtual() async {
+    final sel = await _loadSelecaoParaDia(dataSelecionada);
+    _selecionadoPorTipo
+      ..clear()
+      ..addAll(sel);
+  }
+
   Future<void> carregarDados() async {
     final prefs = await SharedPreferences.getInstance();
     final nome = prefs.getString('nome') ?? '';
     final id = prefs.getInt('paciente_id') ?? 0;
+
+    // lê os logs de peso locais gravados pela tela Registro
+    _pesoLogs = _readLogsMap(prefs.getString('logs_peso'));
 
     setState(() {
       nomeUsuario = nome;
@@ -96,6 +151,8 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
 
     // Pré-carrega os checks do dia atual
     await _getChecksMap(dataSelecionada);
+    // Restaura as opções selecionadas (ex.: opção 2)
+    await _loadSelecaoDoDiaAtual();
     setState(() {});
   }
 
@@ -297,10 +354,9 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
             // Itens
             ListTile(
               leading: const Icon(Icons.restaurant_menu, color: kPrimary),
-              title: const Text('Plano'),
+              title: const Text('Plano Alimentar'),
               onTap: () {
                 Navigator.of(context).pop(); // fecha o drawer
-                // já está na tela de Plano
               },
             ),
             ListTile(
@@ -324,9 +380,9 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
               title: const Text('Alimentos'),
               onTap: () {
                 Navigator.of(context).pop();
-                // Usamos rotas nomeadas para telas anteriores que podem estar em outros arquivos.
-                // Garanta no MaterialApp que a rota '/alimentos' esteja registrada.
-                Navigator.of(context).pushNamed('/alimentos');
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AlimentosPlanoPage()),
+                );
               },
             ),
             ListTile(
@@ -339,12 +395,12 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
             ),
             ListTile(
               leading: const Icon(Icons.medical_information, color: kPrimary),
-              title: const Text('Perfil Nutricionista'),
+              title: const Text('Nutricionista'),
               onTap: () {
                 Navigator.of(context).pop();
-                // Rota nomeada para a tela de Perfil do Nutricionista (existente no app).
-                // Garanta no MaterialApp que a rota '/perfil-nutricionista' esteja registrada.
-                Navigator.of(context).pushNamed('/perfil-nutricionista');
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NutricionistaPage()),
+                );
               },
             ),
           ],
@@ -352,6 +408,161 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
       ),
     );
   }
+
+  // ------------------------------------------
+  // BLOCO: gráfico com os 7 últimos pesos (compacto)
+  // ------------------------------------------
+
+  Map<String, double> _readLogsMap(String? raw) {
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final Map<String, dynamic> m = jsonDecode(raw);
+      return m.map((k, v) {
+        final dv = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0;
+        return MapEntry(k, dv);
+      });
+    } catch (_) {
+      return {};
+    }
+  }
+
+  DateTime? _parseDiaKey(String s) {
+    try {
+      return _keyFormatter.parse(s);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Retorna os 7 registros MAIS RECENTES (ordenados por data ASC para desenhar na ordem)
+  List<MapEntry<DateTime, double>> _ultimos7PesosOrdenados() {
+    final List<MapEntry<DateTime, double>> parsed = [];
+    _pesoLogs.forEach((k, v) {
+      final d = _parseDiaKey(k);
+      if (d != null) parsed.add(MapEntry(d, v));
+    });
+    if (parsed.isEmpty) return const [];
+    parsed.sort((a, b) => b.key.compareTo(a.key)); // DESC (mais recente primeiro)
+    final take = parsed.take(7).toList();
+    take.sort((a, b) => a.key.compareTo(b.key)); // ASC para exibir da esquerda p/ direita
+    return take;
+  }
+
+  ({double minY, double maxY}) _rangeYFromValues(List<double> values, {double pad = 0.5}) {
+    if (values.isEmpty) return (minY: 0, maxY: 1);
+    double minY = values.first, maxY = values.first;
+    for (final v in values) {
+      if (v < minY) minY = v;
+      if (v > maxY) maxY = v;
+    }
+    if (minY == maxY) { minY -= 1; maxY += 1; }
+    return (minY: (minY - pad), maxY: (maxY + pad));
+  }
+
+  Widget _peso7Widget() {
+    final entries = _ultimos7PesosOrdenados();
+    if (entries.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: _cardDeco(),
+        child: Row(
+          children: [
+            const Icon(Icons.trending_up, color: kPrimary, size: 18),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text(
+                'Sem registros de peso ainda. Cadastre na aba Registro.',
+                style: TextStyle(color: kText, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final labels = entries.map((e) => DateFormat('dd/MM', 'pt_BR').format(e.key)).toList();
+    final values = entries.map((e) => e.value).toList();
+    final range = _rangeYFromValues(values, pad: 0.4);
+
+    final spots = List.generate(values.length, (i) => FlSpot(i.toDouble(), values[i]));
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: _cardDeco(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.monitor_weight, color: kPrimary, size: 18),
+              SizedBox(width: 6),
+              Text('7 Últimos registros de peso', style: TextStyle(fontWeight: FontWeight.w700, color: kText, fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 120, // reduzido de 200 para 140
+            child: LineChart(
+              LineChartData(
+                minY: range.minY,
+                maxY: range.maxY,
+                titlesData: FlTitlesData(
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      interval: 1,
+                      reservedSize: 18,
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        if (idx < 0 || idx >= labels.length) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(labels[idx], style: const TextStyle(fontSize: 9)),
+                        );
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: true, reservedSize: 38, getTitlesWidget: (v, m) {
+                      return Text(v.toStringAsFixed(0), style: const TextStyle(fontSize: 10));
+                    }),
+                  ),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                gridData: FlGridData(show: true, drawHorizontalLine: true, horizontalInterval: null),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    dotData: const FlDotData(show: true),
+                    color: kPrimary,
+                    barWidth: 2.2, // mais fino
+                  ),
+                ],
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipItems: (touchedSpots) => touchedSpots.map((it) {
+                      final idx = it.x.toInt();
+                      final label = (idx >= 0 && idx < labels.length) ? labels[idx] : '';
+                      return LineTooltipItem('$label\n${it.y.toStringAsFixed(1)} kg', const TextStyle(color: Colors.white, fontSize: 11));
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  BoxDecoration _cardDeco() => BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(16),
+    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
+    border: Border.all(color: const Color(0x11000000)),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -364,22 +575,9 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.menu, color: kPrimary),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-          tooltip: 'Abrir menu',
-        ),
-        title: const Text(
-          'Plano',
-          style: TextStyle(
-            color: kText,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        centerTitle: false,
+        toolbarHeight: 0,
       ),
-
-      // DRAWER LATERAL COM TODAS AS TELAS
+      // DRAWER LATERAL
       drawer: _buildAppDrawer(context),
 
       body: SafeArea(
@@ -396,8 +594,15 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                 ),
                 padding: const EdgeInsets.all(16),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const CircleAvatar(radius: 26, backgroundImage: AssetImage('assets/images/logo.png'), backgroundColor: Colors.white),
+                    IconButton(
+                      icon: const Icon(Icons.menu, color: Colors.white),
+                      onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                      tooltip: 'Abrir menu',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -410,15 +615,21 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                         const SizedBox(height: 4),
                         Text("Aqui está seu plano alimentar", style: TextStyle(color: Colors.white.withOpacity(0.9))),
                       ]),
-                    ),
+                    )
                   ],
                 ),
               ),
             ),
 
+            // Gráfico dos 7 últimos pesos logo abaixo do cabeçalho (mais compacto)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: _peso7Widget(),
+            ),
+
             // Barra de data à esquerda + kcal consumidas à direita
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
                   IconButton(
@@ -427,6 +638,8 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                       final nova = dataSelecionada.subtract(const Duration(days: 1));
                       dataSelecionada = nova;
                       await _getChecksMap(nova); // pré-carrega checks
+                      // carrega seleção (opção 1/2/3) salva para esse dia
+                      await _loadSelecaoDoDiaAtual();
                       setState(() {});
                     },
                   ),
@@ -459,7 +672,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                         builder: (context, kcalSnap) {
                           final kcalDia = (kcalSnap.data ?? 0).toDouble();
                           return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(20),
@@ -485,6 +698,8 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                       final nova = dataSelecionada.add(const Duration(days: 1));
                       dataSelecionada = nova;
                       await _getChecksMap(nova); // pré-carrega checks
+                      // carrega seleção (opção 1/2/3) salva para esse dia
+                      await _loadSelecaoDoDiaAtual();
                       setState(() {});
                     },
                   ),
@@ -523,9 +738,9 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                   String? objetivo;
                   try {
                     objetivo = dietasValidas
-                        .map((d) => (d.objetivo ?? '').toString().trim())
+                        .map((d) => (d.objetivo).toString().trim())
                         .firstWhere((o) => o.isNotEmpty, orElse: () => '');
-                    if (objetivo!.isEmpty) objetivo = null;
+                    if (objetivo.isEmpty) objetivo = null;
                   } catch (_) {
                     objetivo = null;
                   }
@@ -633,15 +848,15 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.flag_rounded, color: kPrimary),
-                              const SizedBox(width: 10),
+                              const Icon(Icons.flag_rounded, color: kPrimary, size: 18),
+                              const SizedBox(height: 0, width: 10),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text("Objetivo da dieta", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kText)),
                                     const SizedBox(height: 4),
-                                    Text(objetivo!, style: TextStyle(color: Colors.black.withOpacity(.75), height: 1.3)),
+                                    Text(objetivo, style: TextStyle(color: Colors.black.withOpacity(.75), height: 1.3)),
                                   ],
                                 ),
                               ),
@@ -682,7 +897,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(_iconFromTipo(tipo), color: Colors.white),
+                                    Icon(_iconFromTipo(tipo), color: Colors.white, size: 18),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
@@ -739,6 +954,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                                               await _saveChecksParaDia(dataSelecionada, checks);
                                             }
                                             setState(() => _selecionadoPorTipo[tipo] = novo ?? 0);
+                                            await _persistSelecionadoParaDiaAtual(tipo, novo ?? 0);
                                           },
                                         ),
                                       ),

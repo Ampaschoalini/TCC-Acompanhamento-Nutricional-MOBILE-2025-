@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/dieta.dart';
@@ -194,7 +195,7 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
       backgroundColor: kBg,
       appBar: _buildAppBar(),
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -314,39 +315,29 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
     );
   }
 
+  // === Cabeçalho atualizado para combinar com a tela de "Registro" ===
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
       centerTitle: true,
+      iconTheme: const IconThemeData(color: Colors.white),
       title: const Text(
         "Alimentos dos Planos",
         style: TextStyle(
-          color: kText,
+          color: Colors.white,
           fontWeight: FontWeight.w800,
         ),
       ),
       flexibleSpace: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [kPrimary, Color(0xFFFFB74D)],
+            colors: [Color(0xFFEC8800), Color(0xFFFFB36B)], // mesmo gradiente da tela de Registro
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
         ),
       ),
-      actions: [
-        IconButton(
-          tooltip: 'Ordenar',
-          onPressed: () {
-            // ponto de extensão para ordenar por kcal, nome, etc.
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Em breve: ordenar resultados')),
-            );
-          },
-          icon: const Icon(Icons.sort, color: Colors.white),
-        ),
-      ],
     );
   }
 }
@@ -396,8 +387,6 @@ class _SearchBar extends StatelessWidget {
     );
   }
 }
-
-
 
 class _GroupCard extends StatefulWidget {
   final String title;

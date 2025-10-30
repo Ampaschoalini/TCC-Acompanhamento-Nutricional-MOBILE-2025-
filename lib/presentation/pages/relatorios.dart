@@ -71,7 +71,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   // === END: Helpers ===
 
   // --- Estado geral ---
-  Periodo _periodo = Periodo.dia;
+  Periodo _periodo = Periodo.semana;
   DateTime _baseDate = DateTime.now().toLocal();
 
   // Dados atuais do paciente (somente leitura nesta tela)
