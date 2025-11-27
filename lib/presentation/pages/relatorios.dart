@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -515,7 +514,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                   const Text('Peso diário (gráfico)', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
                   const SizedBox(height: 10),
                   if (pesoSpots.isEmpty)
-                    _emptyChartPlaceholder('Sem registros de peso neste período.\nCadastre pesos na aba Registro.'),
+                    _emptyChartPlaceholder('Sem registros de peso neste período.\\nCadastre pesos na aba Registro.'),
                   if (pesoSpots.isNotEmpty)
                     SizedBox(height: 220, child: _buildLineChart(datas, pesoSpots, pesoRange, unidade: 'kg')),
                 ],
@@ -588,7 +587,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                   const SizedBox(height: 10),
                   Builder(builder: (_) {
                     if (medidaSpots.isEmpty) {
-                      return _emptyChartPlaceholder('Sem registros para esta medida.\nCadastre medidas na aba Registro.');
+                      return _emptyChartPlaceholder('Sem registros para esta medida.\\nCadastre medidas na aba Registro.');
                     }
                     return SizedBox(height: 200, child: _buildLineChart(datas, medidaSpots, medidaRange, unidade: 'cm'));
                   }),
@@ -667,7 +666,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               final idx = it.x.toInt();
               final d = datas[idx];
               final labelData = DateFormat('dd/MM', 'pt_BR').format(d);
-              return LineTooltipItem('$labelData\n${it.y.toStringAsFixed(1)} $unidade', const TextStyle(color: Colors.white));
+              return LineTooltipItem('$labelData ${it.y.toStringAsFixed(1)} $unidade', const TextStyle(color: Colors.white));
             }).toList(),
           ),
         ),
@@ -675,18 +674,41 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     );
   }
 
-  // gráfico de barras de kcal por dia
+  // === NOVO: intervalo "micro" para o gráfico de kcal ===
+  double _yIntervalForKcal(double span) {
+    if (span <= 120) return 20;   // valores próximos (20 kcal)
+    if (span <= 300) return 50;   // faixa pequena
+    if (span <= 600) return 100;  // faixa média
+    return 200;                   // faixa maior
+  }
+
+  // gráfico de barras de kcal por dia (ATUALIZADO: eixo Y mais "micro" e sem sufixo K)
   Widget _buildBarChartKcal(List<DateTime> datas, List<double> valores, ({double minY, double maxY}) range) {
+    final span = (range.maxY - range.minY).abs();
+    final yInterval = _yIntervalForKcal(span);
+    final nf = NumberFormat('#,##0', 'pt_BR'); // ex.: 2.865 (sem 'K')
+
     return BarChart(
       BarChartData(
         minY: range.minY,
         maxY: range.maxY,
-        gridData: FlGridData(show: true, drawVerticalLine: false),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: yInterval,
+        ),
         titlesData: FlTitlesData(
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           leftTitles: AxisTitles(
-            sideTitles: SideTitles(showTitles: true, reservedSize: 44),
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 48,
+              interval: yInterval,
+              getTitlesWidget: (value, meta) {
+                return Text(nf.format(value), style: const TextStyle(fontSize: 10));
+              },
+            ),
           ),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
@@ -712,7 +734,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               final d = datas[group.x.toInt()];
               final label = DateFormat('dd/MM', 'pt_BR').format(d);
               final v = rod.toY;
-              return BarTooltipItem('$label\n${v.toStringAsFixed(0)} kcal', const TextStyle(color: Colors.white));
+              return BarTooltipItem('$label ${v.toStringAsFixed(0)} kcal', const TextStyle(color: Colors.white));
             },
           ),
         ),

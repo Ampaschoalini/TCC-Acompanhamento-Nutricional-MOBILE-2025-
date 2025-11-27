@@ -1,11 +1,9 @@
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/models/dieta.dart';
-import '../../data/services/dieta_service.dart';
-import '../../data/models/alimento.dart';
 
-// ============ Constantes de tema (escopo global) ============
+import '../../data/models/alimento.dart';
+import '../../data/services/alimentos_plano_service.dart';
+
 const Color kPrimary = Color(0xFFEC8800);
 const Color kBg = Color(0xFFF5F5F5);
 const Color kText = Color(0xFF444444);
@@ -18,30 +16,65 @@ class AlimentosPlanoPage extends StatefulWidget {
 }
 
 class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
-  final DietaService _service = DietaService();
-  Future<List<Dieta>>? _dietasFuture;
+  final AlimentosPlanoService _service = AlimentosPlanoService();
+  Future<List<Alimento>>? _alimentosFuture;
 
   final TextEditingController _searchCtrl = TextEditingController();
   String _query = '';
 
-  static const List<String> gruposFixos = [
-    'Grãos',
-    'Frutas',
-    'Cereais',
-    'Massas',
-    'Açúcares e Doces',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _carregarAlimentos();
+    _searchCtrl.addListener(() {
+      setState(() {
+        _query = _searchCtrl.text.trim().toLowerCase();
+      });
+    });
+  }
 
-  // ====== Normalização e mapeamento de grupo ======
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _carregarAlimentos() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pacienteId = prefs.getInt('paciente_id') ?? 0;
+
+    setState(() {
+      _alimentosFuture = _service.getAlimentosPlanoByPaciente(pacienteId);
+    });
+  }
+
+  // ==== Normalização de texto ====
   String _normalize(String s) {
     final lower = s.toLowerCase().trim();
     const mapa = {
-      'á':'a','à':'a','â':'a','ã':'a','ä':'a',
-      'é':'e','è':'e','ê':'e','ë':'e',
-      'í':'i','ì':'i','î':'i','ï':'i',
-      'ó':'o','ò':'o','ô':'o','õ':'o','ö':'o',
-      'ú':'u','ù':'u','û':'u','ü':'u',
-      'ç':'c'
+      'á': 'a',
+      'à': 'a',
+      'â': 'a',
+      'ã': 'a',
+      'ä': 'a',
+      'é': 'e',
+      'è': 'e',
+      'ê': 'e',
+      'ë': 'e',
+      'í': 'i',
+      'ì': 'i',
+      'î': 'i',
+      'ï': 'i',
+      'ó': 'o',
+      'ò': 'o',
+      'ô': 'o',
+      'õ': 'o',
+      'ö': 'o',
+      'ú': 'u',
+      'ù': 'u',
+      'û': 'u',
+      'ü': 'u',
+      'ç': 'c',
     };
     final sb = StringBuffer();
     for (final r in lower.runes) {
@@ -49,7 +82,6 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
       sb.write(mapa[ch] ?? ch);
     }
     final basic = sb.toString();
-    // remove pontuação e substitui separadores por espaço
     final cleaned = basic
         .replaceAll(RegExp(r'[/|&,+;]'), ' ')
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
@@ -58,135 +90,83 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
     return cleaned;
   }
 
-  // Retorna o grupo canônico com base em regex flexíveis
-  String? _canonicalizeGrupo(String? g) {
-    if (g == null || g.trim().isEmpty) return null;
+  IconData _iconForGroup(String g) {
     final s = _normalize(g);
 
-    // 1) Açúcares e Doces
-    if (RegExp(r'\bacucar(es)?\b').hasMatch(s) || RegExp(r'\bdoce(s)?\b').hasMatch(s)) {
-      return 'Açúcares e Doces';
+    if (s.contains('fruta')) return Icons.apple;
+    if (s.contains('verdura') || s.contains('legume') || s.contains('salada')) {
+      return Icons.grass;
     }
-
-    // 2) Grãos
-    if (RegExp(r'\bgrao(s)?\b').hasMatch(s)) {
-      return 'Grãos';
+    if (s.contains('cereal')) return Icons.breakfast_dining;
+    if (s.contains('oleo') || s.contains('gordura')) return Icons.opacity;
+    if (s.contains('proteina') ||
+        s.contains('carne') ||
+        s.contains('frango') ||
+        s.contains('ovo')) {
+      return Icons.set_meal;
     }
-
-    // 3) Cereais
-    if (RegExp(r'\bcereal(is)?\b').hasMatch(s)) {
-      return 'Cereais';
+    if (s.contains('laticinio') ||
+        s.contains('leite') ||
+        s.contains('queijo') ||
+        s.contains('iogurte')) {
+      return Icons.local_cafe;
     }
+    if (s.contains('leguminosa') || s.contains('feijao')) return Icons.eco;
+    if (s.contains('bebida') || s.contains('suco')) return Icons.local_drink;
 
-    // 4) Frutas
-    if (RegExp(r'\bfruta(s)?\b').hasMatch(s)) {
-      return 'Frutas';
-    }
-
-    // 5) Massas
-    if (RegExp(r'\bmassa(s)?\b').hasMatch(s) ||
-        RegExp(r'\bmacarrao\b').hasMatch(s) ||
-        RegExp(r'\bespaguete\b').hasMatch(s) ||
-        RegExp(r'\bpenne\b').hasMatch(s) ||
-        RegExp(r'\btalharim\b').hasMatch(s) ||
-        RegExp(r'\bfusilli\b').hasMatch(s)) {
-      return 'Massas';
-    }
-
-    // Casos com ordem trocada
-    if (s.contains('acucar') && s.contains('doce')) {
-      return 'Açúcares e Doces';
-    }
-
-    if (s.contains('cereal')) return 'Cereais';
-    if (s.contains('grao')) return 'Grãos';
-
-    return null;
+    return Icons.local_dining;
   }
 
-  // Ícone por grupo (Material disponível em versões estáveis)
-  IconData _iconForGroup(String g) {
-    switch (g) {
-      case 'Frutas':
-        return Icons.apple;
-      case 'Massas':
-        return Icons.ramen_dining;
-      case 'Cereais':
-        return Icons.breakfast_dining;
-      case 'Grãos':
-        return Icons.eco;
-      case 'Açúcares e Doces':
-        return Icons.icecream;
-      default:
-        return Icons.local_dining;
-    }
-  }
-
-  // Cor suave por grupo (harmônica ao laranja)
   Color _tintForGroup(String g) {
-    switch (g) {
-      case 'Frutas':
-        return const Color(0xFFFFF0E0);
-      case 'Massas':
-        return const Color(0xFFFFF5E8);
-      case 'Cereais':
-        return const Color(0xFFFFF7EC);
-      case 'Grãos':
-        return const Color(0xFFFFEFE0);
-      case 'Açúcares e Doces':
-        return const Color(0xFFFFF1E6);
-      default:
-        return Colors.white;
+    final s = _normalize(g);
+
+    if (s.contains('fruta')) return const Color(0xFFFFF0E0);
+    if (s.contains('verdura') || s.contains('legume')) {
+      return const Color(0xFFE6F7E9);
     }
+    if (s.contains('cereal')) return const Color(0xFFFFF7EC);
+    if (s.contains('oleo') || s.contains('gordura')) {
+      return const Color(0xFFFFF1E6);
+    }
+    if (s.contains('proteina')) return const Color(0xFFE9F3FF);
+    if (s.contains('laticinio') ||
+        s.contains('leite') ||
+        s.contains('queijo') ||
+        s.contains('iogurte')) {
+      return const Color(0xFFEFF4FF);
+    }
+    if (s.contains('leguminosa') || s.contains('feijao')) {
+      return const Color(0xFFEFFAE6);
+    }
+    if (s.contains('bebida') || s.contains('suco')) {
+      return const Color(0xFFE6F4FF);
+    }
+    return Colors.white;
   }
 
-  // Agrupa por grupo fixo e ordena
   Map<String, List<Alimento>> _agruparEOrdenar(List<Alimento> alimentos) {
     final filtrados = _query.isEmpty
         ? alimentos
-        : alimentos.where((a) => a.nome.toLowerCase().contains(_query)).toList();
+        : alimentos
+        .where((a) => a.nome.toLowerCase().contains(_query))
+        .toList();
 
-    final Map<String, List<Alimento>> porGrupo = {
-      for (final g in gruposFixos) g: <Alimento>[],
-    };
+    final Map<String, List<Alimento>> porGrupo = {};
 
     for (final a in filtrados) {
-      final can = _canonicalizeGrupo(a.grupoAlimentar);
-      if (can != null && porGrupo.containsKey(can)) {
-        porGrupo[can]!.add(a);
-      }
+      final rawGroup = a.grupoAlimentar.trim();
+      if (rawGroup.isEmpty) continue;
+
+      porGrupo.putIfAbsent(rawGroup, () => <Alimento>[]).add(a);
     }
 
     for (final entry in porGrupo.entries) {
-      entry.value.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+      entry.value.sort(
+            (a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()),
+      );
     }
 
     return porGrupo;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    carregarPlanos();
-    _searchCtrl.addListener(() {
-      setState(() {
-        _query = _searchCtrl.text.trim().toLowerCase();
-      });
-    });
-  }
-
-  Future<void> carregarPlanos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final pacienteId = prefs.getInt('paciente_id') ?? 0;
-    setState(() {
-      _dietasFuture = _service.getDietasByPacienteId(pacienteId);
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
   }
 
   @override
@@ -199,49 +179,49 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFFFF2E6), kBg],
+            colors: [const Color(0xFFFFF2E6), kBg],
           ),
         ),
-        child: FutureBuilder<List<Dieta>>(
-          future: _dietasFuture,
+        child: FutureBuilder<List<Alimento>>(
+          future: _alimentosFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
+
             if (snapshot.hasError) {
               return _EmptyState(
                 icon: Icons.error_outline,
                 title: 'Algo deu errado',
-                subtitle: 'Não foi possível carregar seus planos.\n${snapshot.error}',
-                onRetry: carregarPlanos,
+                subtitle:
+                'Não foi possível carregar os alimentos do plano.\n${snapshot.error}',
+                onRetry: _carregarAlimentos,
               );
             }
-            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+
+            final data = snapshot.data ?? const <Alimento>[];
+
+            if (data.isEmpty) {
               return const _EmptyState(
                 icon: Icons.restaurant_menu,
-                title: 'Nenhum plano encontrado',
-                subtitle: 'Quando seu nutricionista publicar um plano,\neles aparecerão aqui.',
+                title: 'Nenhum alimento encontrado',
+                subtitle:
+                'Quando seu nutricionista publicar um plano,\nos alimentos aparecerão aqui.\n'
+                    'Se você estiver offline, verifique se já acessou esta tela pelo menos uma vez conectado.',
               );
             }
 
-            final alimentos = snapshot.data!
-                .expand((dieta) => dieta.refeicoes)
-                .expand((refeicao) => refeicao.alimentos)
-                .toList();
+            final agrupado = _agruparEOrdenar(data);
+            final totalItens =
+            agrupado.values.fold<int>(0, (acc, l) => acc + l.length);
 
-            if (alimentos.isEmpty) {
-              return const _EmptyState(
-                icon: Icons.food_bank_outlined,
-                title: 'Sem alimentos cadastrados',
-                subtitle: 'Os alimentos do seu plano aparecerão aqui.',
+            final grupos = agrupado.keys.toList()
+              ..sort(
+                    (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
               );
-            }
-
-            final agrupado = _agruparEOrdenar(alimentos);
-            final totalItens = agrupado.values.fold<int>(0, (acc, l) => acc + l.length);
 
             return RefreshIndicator(
-              onRefresh: carregarPlanos,
+              onRefresh: _carregarAlimentos,
               child: CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
@@ -249,7 +229,7 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       child: _SearchBar(
                         controller: _searchCtrl,
-                        hint: 'Pesquisar alimento...',
+                        hint: 'Pesquisar alimento',
                         onClear: () {
                           _searchCtrl.clear();
                           FocusScope.of(context).unfocus();
@@ -265,7 +245,7 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
                           Expanded(
                             child: Text(
                               _query.isEmpty
-                                  ? 'Grupos alimentares (fixos)'
+                                  ? 'Grupos alimentares'
                                   : 'Resultados para "${_searchCtrl.text}"',
                               style: const TextStyle(
                                 color: kText,
@@ -287,13 +267,17 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
                     )
                   else
                     SliverList.builder(
-                      itemCount: gruposFixos.length,
+                      itemCount: grupos.length,
                       itemBuilder: (context, index) {
-                        final grupo = gruposFixos[index];
-                        final itens = agrupado[grupo] ?? const <Alimento>[];
-                        if (itens.isEmpty) return const SizedBox.shrink();
+                        final grupo = grupos[index];
+                        final itens =
+                            agrupado[grupo] ?? const <Alimento>[];
+                        if (itens.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
                         return Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                          padding:
+                          const EdgeInsets.fromLTRB(16, 10, 16, 10),
                           child: _GroupCard(
                             title: grupo,
                             items: itens,
@@ -305,7 +289,9 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
                         );
                       },
                     ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 24),
+                  ),
                 ],
               ),
             );
@@ -315,7 +301,6 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
     );
   }
 
-  // === Cabeçalho atualizado para combinar com a tela de "Registro" ===
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       backgroundColor: Colors.transparent,
@@ -323,7 +308,7 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
       centerTitle: true,
       iconTheme: const IconThemeData(color: Colors.white),
       title: const Text(
-        "Alimentos dos Planos",
+        'Alimentos dos Planos',
         style: TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.w800,
@@ -332,7 +317,7 @@ class _AlimentosPlanoPageState extends State<AlimentosPlanoPage> {
       flexibleSpace: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFEC8800), Color(0xFFFFB36B)], // mesmo gradiente da tela de Registro
+            colors: [Color(0xFFEC8800), Color(0xFFFFB36B)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -346,7 +331,12 @@ class _SearchBar extends StatelessWidget {
   final TextEditingController controller;
   final String hint;
   final VoidCallback? onClear;
-  const _SearchBar({required this.controller, required this.hint, this.onClear});
+
+  const _SearchBar({
+    required this.controller,
+    required this.hint,
+    this.onClear,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -381,7 +371,10 @@ class _SearchBar extends StatelessWidget {
           ),
           filled: true,
           fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 14,
+            horizontal: 12,
+          ),
         ),
       ),
     );
@@ -432,7 +425,8 @@ class _GroupCardState extends State<_GroupCard> {
         child: ExpansionTile(
           initiallyExpanded: _expanded,
           onExpansionChanged: (v) => setState(() => _expanded = v),
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          tilePadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           backgroundColor: widget.tint,
           collapsedBackgroundColor: Colors.white,
           title: Row(
@@ -443,7 +437,11 @@ class _GroupCardState extends State<_GroupCard> {
                   color: widget.primary.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(widget.icon, color: widget.primary, size: 20),
+                child: Icon(
+                  widget.icon,
+                  color: widget.primary,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -486,19 +484,30 @@ class _AlimentoTile extends StatelessWidget {
   final Alimento alimento;
   final Color primary;
   final Color textColor;
-  const _AlimentoTile({required this.alimento, required this.primary, required this.textColor});
+
+  const _AlimentoTile({
+    required this.alimento,
+    required this.primary,
+    required this.textColor,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final leadingLetter = alimento.nome.isNotEmpty ? alimento.nome.characters.first.toUpperCase() : '?';
+    final leadingLetter = alimento.nome.isNotEmpty
+        ? alimento.nome.characters.first.toUpperCase()
+        : '?';
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      contentPadding:
+      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: CircleAvatar(
         backgroundColor: primary.withOpacity(0.12),
         child: Text(
           leadingLetter,
-          style: TextStyle(color: primary, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: primary,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
       title: Text(
@@ -510,10 +519,13 @@ class _AlimentoTile extends StatelessWidget {
       ),
       subtitle: Text(
         _subtitle(alimento),
-        style: TextStyle(color: textColor.withOpacity(0.8)),
+        style: TextStyle(
+          color: textColor.withOpacity(0.8),
+        ),
       ),
       trailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding:
+        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: primary.withOpacity(0.15),
           borderRadius: BorderRadius.circular(12),
@@ -527,14 +539,14 @@ class _AlimentoTile extends StatelessWidget {
         ),
       ),
       onTap: () {
-        // future: abrir detalhes do alimento
+        // futuro: detalhes do alimento
       },
     );
   }
 
   String _subtitle(Alimento a) {
     final grp = a.grupoAlimentar;
-    final base = (grp.isNotEmpty) ? grp : 'Alimento';
+    final base = grp.isNotEmpty ? grp : 'Alimento';
     final hasQtd = a.quantidade.isNotEmpty;
     return hasQtd ? '$base • ${a.quantidade}' : base;
   }
@@ -545,6 +557,7 @@ class _EmptyState extends StatelessWidget {
   final String title;
   final String subtitle;
   final Future<void> Function()? onRetry;
+
   const _EmptyState({
     required this.icon,
     required this.title,
@@ -566,7 +579,7 @@ class _EmptyState extends StatelessWidget {
                 color: kPrimary.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.info_outline, size: 38, color: kPrimary),
+              child: Icon(icon, size: 38, color: kPrimary),
             ),
             const SizedBox(height: 12),
             Text(
@@ -593,7 +606,9 @@ class _EmptyState extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kPrimary,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),

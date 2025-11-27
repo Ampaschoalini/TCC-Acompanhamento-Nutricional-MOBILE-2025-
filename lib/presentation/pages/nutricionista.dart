@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+
+import '../../data/services/nutricionista_service.dart';
 
 class NutricionistaPage extends StatefulWidget {
   const NutricionistaPage({super.key});
@@ -14,6 +14,8 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
   Map<String, dynamic>? nutricionista;
   bool isLoading = true;
 
+  final NutricionistaService _service = NutricionistaService();
+
   @override
   void initState() {
     super.initState();
@@ -21,34 +23,36 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
   }
 
   Future<void> _carregarNutricionista() async {
+    setState(() {
+      isLoading = true;
+    });
+
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getInt('nutricionista_id');
-    print("Nutricionista ID: $id");
+    // ignore: avoid_print
+    print("Nutricionista ID (SharedPreferences): $id");
 
     if (id == null) {
       setState(() {
         isLoading = false;
+        nutricionista = null;
       });
       return;
     }
 
-    final url = Uri.parse(
-        'http://10.0.2.2:8800/nutricionist/getNutricionistById/$id');
-
-    final response = await http.get(url);
-    print("Status: ${response.statusCode}");
-    print("Body: ${response.body}");
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+    try {
+      final data = await _service.getNutricionistaById(id);
       setState(() {
-        nutricionista = data is List && data.isNotEmpty ? data[0] : null;
+        nutricionista = data;
         isLoading = false;
       });
-    } else {
-      print('❌ Erro ao carregar nutricionista: ${response.statusCode}');
+    } catch (e) {
+      // Deve ser raro, já que o service captura quase tudo
+      // ignore: avoid_print
+      print('Erro inesperado ao carregar nutricionista: $e');
       setState(() {
         isLoading = false;
+        nutricionista = null;
       });
     }
   }
@@ -85,7 +89,9 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
                     child: CircleAvatar(
                       radius: 50,
                       backgroundColor: Colors.white,
-                      backgroundImage: const AssetImage('assets/images/Nutricionista.jpg'),
+                      backgroundImage: const AssetImage(
+                        'assets/images/Nutricionista.jpg',
+                      ),
                     ),
                   ),
                 ),
@@ -100,46 +106,78 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
                 _infoSection(
                   title: "Informações de Contato",
                   items: [
-                    _infoTile(Icons.email, "Email",
-                        nutricionista!['email'], color: Colors.green),
-                    _infoTile(Icons.phone, "Celular",
-                        nutricionista!['celular'],
-                        color: Colors.green),
-                    _infoTile(Icons.phone_android, "WhatsApp",
-                        _formatarWhatsapp(nutricionista!['whatsapp']),
-                        color: Colors.green),
-                    _infoTile(Icons.location_on, "Endereço",
-                        nutricionista!['endereco'],
-                        color: Colors.green),
+                    _infoTile(
+                      Icons.email,
+                      "Email",
+                      nutricionista!['email']?.toString(),
+                      color: Colors.green,
+                    ),
+                    _infoTile(
+                      Icons.phone,
+                      "Celular",
+                      nutricionista!['celular']?.toString(),
+                      color: Colors.green,
+                    ),
+                    _infoTile(
+                      Icons.phone_android,
+                      "WhatsApp",
+                      _formatarWhatsapp(
+                        nutricionista!['whatsapp']?.toString(),
+                      ),
+                      color: Colors.green,
+                    ),
+                    _infoTile(
+                      Icons.location_on,
+                      "Endereço",
+                      nutricionista!['endereco']?.toString(),
+                      color: Colors.green,
+                    ),
                   ],
                 ),
                 _infoSection(
                   title: "Informações Profissionais",
                   items: [
-                    _infoTile(Icons.badge, "CRN",
-                        nutricionista!['crn'],
-                        color: const Color(0xFFEC8800)),
-                    _infoTile(Icons.restaurant_menu, "Especialidade",
-                        nutricionista!['especialidade'],
-                        color: const Color(0xFFEC8800)),
-                    _infoTile(Icons.access_time,
-                        "Horário de Atendimento",
-                        "${nutricionista!['horarioInicio']} às ${nutricionista!['horarioFim']}",
-                        color: const Color(0xFFEC8800)),
-                    _infoTile(Icons.calendar_today, "Dias da Semana",
-                        nutricionista!['diasSemanas'],
-                        color: const Color(0xFFEC8800)),
+                    _infoTile(
+                      Icons.badge,
+                      "CRN",
+                      nutricionista!['crn']?.toString(),
+                      color: const Color(0xFFEC8800),
+                    ),
+                    _infoTile(
+                      Icons.restaurant_menu,
+                      "Especialidade",
+                      nutricionista!['especialidade']?.toString(),
+                      color: const Color(0xFFEC8800),
+                    ),
+                    _infoTile(
+                      Icons.access_time,
+                      "Horário de Atendimento",
+                      _montarHorario(),
+                      color: const Color(0xFFEC8800),
+                    ),
+                    _infoTile(
+                      Icons.calendar_today,
+                      "Dias da Semana",
+                      nutricionista!['diasSemanas']?.toString(),
+                      color: const Color(0xFFEC8800),
+                    ),
                   ],
                 ),
                 _infoSection(
                   title: "Informações Pessoais",
                   items: [
-                    _infoTile(Icons.camera_alt, "Instagram",
-                        nutricionista!['instagram'],
-                        color: Colors.pink),
-                    _infoTile(Icons.work, "LinkedIn",
-                        nutricionista!['linkedin'],
-                        color: Colors.blue),
+                    _infoTile(
+                      Icons.camera_alt,
+                      "Instagram",
+                      nutricionista!['instagram']?.toString(),
+                      color: Colors.pink,
+                    ),
+                    _infoTile(
+                      Icons.work,
+                      "LinkedIn",
+                      nutricionista!['linkedin']?.toString(),
+                      color: Colors.blue,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -149,6 +187,16 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
         ],
       ),
     );
+  }
+
+  String _montarHorario() {
+    final inicio = nutricionista!['horarioInicio']?.toString();
+    final fim = nutricionista!['horarioFim']?.toString();
+    if ((inicio == null || inicio.isEmpty) &&
+        (fim == null || fim.isEmpty)) {
+      return '-';
+    }
+    return '${inicio ?? '-'} às ${fim ?? '-'}';
   }
 
   Widget _nomeEspecialidade() {
@@ -163,13 +211,15 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text(
-                nutricionista!['nome'] ?? '-',
-                style:
-                const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                nutricionista!['nome']?.toString() ?? '-',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
-                nutricionista!['especialidade'] ?? '-',
+                nutricionista!['especialidade']?.toString() ?? '-',
                 style: const TextStyle(
                   fontSize: 16,
                   color: Colors.black54,
@@ -189,9 +239,11 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style:
-              const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          Text(
+            title,
+            style:
+            const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
           const SizedBox(height: 8),
           ...items,
         ],
@@ -199,8 +251,12 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
     );
   }
 
-  Widget _infoTile(IconData icon, String label, String? value,
-      {Color color = Colors.black}) {
+  Widget _infoTile(
+      IconData icon,
+      String label,
+      String? value, {
+        Color color = Colors.black,
+      }) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -211,8 +267,10 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
           label,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text(value ?? '-',
-            style: const TextStyle(color: Colors.black87)),
+        subtitle: Text(
+          value == null || value.isEmpty ? '-' : value,
+          style: const TextStyle(color: Colors.black87),
+        ),
       ),
     );
   }

@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import '../../data/services/paciente_api.dart';
 
@@ -221,7 +220,7 @@ class _PerfilPageState extends State<PerfilPage> {
                         ],
                       ),
 
-                      // 3) Configurações (popup Alterar Senha)
+                      // 3) Configurações (popup Alterar Senha + Sair)
                       _SectionCard(
                         title: 'Configurações',
                         children: [
@@ -236,6 +235,20 @@ class _PerfilPageState extends State<PerfilPage> {
                               onPressed: _alterarSenha,
                               icon: const Icon(Icons.lock_reset_rounded),
                               label: const Text('Alterar Senha'),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.redAccent,
+                                side: const BorderSide(color: Colors.redAccent),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: _logout,
+                              icon: const Icon(Icons.exit_to_app_rounded),
+                              label: const Text('Sair'),
                             ),
                           ),
                         ],
@@ -649,6 +662,17 @@ class _PerfilPageState extends State<PerfilPage> {
     );
   }
 
+  Future<void> _logout() async {
+    if (!mounted) return;
+
+    // Apenas redireciona para a tela de login,
+    // removendo todas as rotas anteriores da pilha.
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/login',
+          (route) => false,
+    );
+  }
+
   // --- Util ---
   String _generoLabel() {
     final g = (_genero ?? '').toUpperCase().trim();
@@ -662,7 +686,7 @@ class _PerfilPageState extends State<PerfilPage> {
     if (input == null || input.isEmpty) return null;
     try {
       final sanitized = input.contains('T') ? input.split('T').first : input;
-      if (RegExp(r'^\\d{4}-\\d{2}-\\d{2}\$').hasMatch(sanitized)) {
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(sanitized)) {
         final p = sanitized.split('-');
         return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
       }

@@ -1,4 +1,4 @@
-import 'package:sqflite/sqflite.dart';
+/* import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/alimento.dart';
 
@@ -87,3 +87,4 @@ class DatabaseHelper {
     return maps.map((map) => Alimento.fromMap(map)).toList();
   }
 }
+*/

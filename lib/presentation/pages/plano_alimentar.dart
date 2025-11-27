@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'alimentos_plano.dart';
 import 'nutricionista.dart';
@@ -397,9 +396,10 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
               leading: const Icon(Icons.medical_information, color: kPrimary),
               title: const Text('Nutricionista'),
               onTap: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const NutricionistaPage()),
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const NutricionistaPage()),
                 );
               },
             ),
