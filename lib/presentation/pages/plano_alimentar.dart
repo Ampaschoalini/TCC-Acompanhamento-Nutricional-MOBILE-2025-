@@ -7,7 +7,7 @@ import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import '../../data/models/dieta.dart';
 import '../../data/models/refeicao.dart';
-import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/dieta_service.dart';
+import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/plano_alimentar_service.dart';
 
 // IMPORTS PARA NAVEGAÇÃO VIA MENU LATERAL
 import 'relatorios.dart';
@@ -37,7 +37,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
   int pacienteId = 0;
 
   DateTime dataSelecionada = (DateTime.now().toLocal());
-  final DietaService _service = DietaService();
+  final PlanoAlimentarService _service = PlanoAlimentarService();
   Future<List<Dieta>>? _dietasFuture;
 
   /// Índice selecionado por tipo (ex.: "Café da Manhã") quando houver >1 registro

@@ -7,7 +7,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 
 // === Modelos e serviço para ler dietas e calcular kcal por dia ===
-import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/dieta_service.dart';
+import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/plano_alimentar_service.dart';
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/models/dieta.dart';
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/models/refeicao.dart';
 
@@ -19,7 +19,8 @@ const Color kText = Color(0xFF444444);
 
 // === API do projeto WEB ===
 // Ajuste esta URL conforme o seu backend (ex.: http://10.0.2.2:3000 para emulador Android).
-const String kApiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8800');
+const String kApiBaseUrl =
+String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8800');
 
 // As rotas abaixo são usadas apenas para LEITURA (GET) aqui.
 const List<String> kGetByIdPathVariants = [
@@ -74,22 +75,24 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   DateTime _baseDate = DateTime.now().toLocal();
 
   // Dados atuais do paciente (somente leitura nesta tela)
-  double? _peso; double? _altura;
+  double? _peso;
+  double? _altura;
   int? _pacienteId;
   String? _token;
 
   // Logs por dia (sobrepõe no mesmo dia)
-  Map<String, double> _pesoLogs = {};      // 'yyyy-MM-dd' -> kg
-  Map<String, double> _cinturaLogs = {};   // cm
-  Map<String, double> _quadrilLogs = {};   // cm
-  Map<String, double> _bracoLogs = {};     // cm
-  Map<String, double> _pernaLogs = {};     // cm
+  Map<String, double> _pesoLogs = {}; // 'yyyy-MM-dd' -> kg
+  Map<String, double> _cinturaLogs = {}; // cm
+  Map<String, double> _quadrilLogs = {}; // cm
+  Map<String, double> _bracoLogs = {}; // cm
+  Map<String, double> _pernaLogs = {}; // cm
 
   // Exibição do gráfico de medidas
   MedidaKind _medidaSelecionada = MedidaKind.cintura;
 
   // Dietas e cálculo de kcal consumidas por dia (com base nos checks do Plano Alimentar)
-  final DietaService _dietaService = DietaService();
+  final PlanoAlimentarService _planoAlimentarService =
+  PlanoAlimentarService();
   List<Dieta> _dietas = const [];
 
   @override
@@ -103,18 +106,19 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     final prefs = await SharedPreferences.getInstance();
 
     // Últimos valores conhecidos (gravados pela tela de Registro)
-    _peso    = (prefs.getDouble('peso') ?? (prefs.getInt('peso')?.toDouble()));
-    _altura  = (prefs.getDouble('altura') ?? (prefs.getInt('altura')?.toDouble()));
+    _peso = (prefs.getDouble('peso') ?? (prefs.getInt('peso')?.toDouble()));
+    _altura =
+    (prefs.getDouble('altura') ?? (prefs.getInt('altura')?.toDouble()));
 
     _pacienteId = prefs.getInt('paciente_id') ?? 0;
     _token = prefs.getString('token');
 
     // Carrega logs (gravados pela tela de Registro)
-    _pesoLogs     = _readLogsMap(prefs.getString('logs_peso'));
-    _cinturaLogs  = _readLogsMap(prefs.getString('logs_cintura'));
-    _quadrilLogs  = _readLogsMap(prefs.getString('logs_quadril'));
-    _bracoLogs    = _readLogsMap(prefs.getString('logs_braco'));
-    _pernaLogs    = _readLogsMap(prefs.getString('logs_perna'));
+    _pesoLogs = _readLogsMap(prefs.getString('logs_peso'));
+    _cinturaLogs = _readLogsMap(prefs.getString('logs_cintura'));
+    _quadrilLogs = _readLogsMap(prefs.getString('logs_quadril'));
+    _bracoLogs = _readLogsMap(prefs.getString('logs_braco'));
+    _pernaLogs = _readLogsMap(prefs.getString('logs_perna'));
 
     // Tenta atualizar com dados do backend (LEITURA apenas)
     try {
@@ -129,9 +133,14 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   Future<void> _carregarDietas() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final int pid = prefs.getInt('paciente_id') ?? (_pacienteId ?? 0) ?? 0;
+      final int pid =
+          prefs.getInt('paciente_id') ?? (_pacienteId ?? 0) ?? 0;
       if (pid == 0) return;
-      final dietas = await _dietaService.getDietasByPacienteId(pid);
+
+      // AGORA usando PlanoAlimentarService (online + offline)
+      final dietas =
+      await _planoAlimentarService.getDietasByPacienteId(pid);
+
       if (mounted) setState(() => _dietas = dietas);
     } catch (e) {
       if (kDebugMode) debugPrint('Falha ao carregar dietas: $e');
@@ -143,7 +152,8 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     try {
       final Map<String, dynamic> m = jsonDecode(raw);
       return m.map((k, v) {
-        final dv = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0;
+        final dv =
+        (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0;
         return MapEntry(k, dv);
       });
     } catch (_) {
@@ -151,14 +161,20 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     }
   }
 
-  Map<String,String> _buildHeaders() {
-    final headers = <String, String>{'Content-Type': 'application/json; charset=utf-8'};
-    if (_token != null && _token!.isNotEmpty) headers['Authorization'] = 'Bearer $_token';
+  Map<String, String> _buildHeaders() {
+    final headers = <String, String>{
+      'Content-Type': 'application/json; charset=utf-8'
+    };
+    if (_token != null && _token!.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $_token';
+    }
     return headers;
   }
 
   Uri _composeUri(String path) => Uri.parse('$kApiBaseUrl$path');
-  String _applyId(String pattern, int id) => pattern.replaceAll('{id}', id.toString());
+
+  String _applyId(String pattern, int id) =>
+      pattern.replaceAll('{id}', id.toString());
 
   Future<Map<String, dynamic>?> _getPatientByIdSmart(int pacienteId) async {
     if (pacienteId == 0) return null;
@@ -167,7 +183,9 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
       final uri = _composeUri(path);
       try {
         final resp = await http.get(uri, headers: _buildHeaders());
-        if (kDebugMode) debugPrint('GET ${uri.toString()} -> ${resp.statusCode}');
+        if (kDebugMode) {
+          debugPrint('GET ${uri.toString()} -> ${resp.statusCode}');
+        }
         if (resp.statusCode == 200) {
           final body = resp.body.isEmpty ? null : jsonDecode(resp.body);
           if (body == null) return null;
@@ -192,8 +210,8 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     final p = await _getPatientByIdSmart(pacienteId);
     if (p == null) return;
 
-    final double? pesoApi    = _toDouble(p['peso']);
-    final double? alturaApi  = _toDouble(p['altura']);
+    final double? pesoApi = _toDouble(p['peso']);
+    final double? alturaApi = _toDouble(p['altura']);
 
     if (pesoApi != null) _peso = pesoApi;
     if (alturaApi != null) _altura = alturaApi;
@@ -211,23 +229,48 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
 
   // -------------------- Helpers de data / período --------------------
   DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
-  DateTime _inicioDaSemana(DateTime d) { final wd = d.weekday; return _dateOnly(d.subtract(Duration(days: wd - 1))); }
-  DateTime _fimDaSemana(DateTime d) => _inicioDaSemana(d).add(const Duration(days: 6));
+
+  DateTime _inicioDaSemana(DateTime d) {
+    final wd = d.weekday;
+    return _dateOnly(d.subtract(Duration(days: wd - 1)));
+  }
+
+  DateTime _fimDaSemana(DateTime d) =>
+      _inicioDaSemana(d).add(const Duration(days: 6));
+
   DateTime _inicioDoMes(DateTime d) => DateTime(d.year, d.month, 1);
+
   DateTime _fimDoMes(DateTime d) => DateTime(d.year, d.month + 1, 0);
+
   DateTime _inicioDoAno(DateTime d) => DateTime(d.year, 1, 1);
+
   DateTime _fimDoAno(DateTime d) => DateTime(d.year, 12, 31);
 
   List<DateTime> _datasNoPeriodo(DateTime base, Periodo p) {
-    late DateTime ini; late DateTime fim;
+    late DateTime ini;
+    late DateTime fim;
     switch (p) {
-      case Periodo.dia: ini = _dateOnly(base); fim = _dateOnly(base); break;
-      case Periodo.semana: ini = _inicioDaSemana(base); fim = _fimDaSemana(base); break;
-      case Periodo.mes: ini = _inicioDoMes(base); fim = _fimDoMes(base); break;
-      case Periodo.ano: ini = _inicioDoAno(base); fim = _fimDoAno(base); break;
+      case Periodo.dia:
+        ini = _dateOnly(base);
+        fim = _dateOnly(base);
+        break;
+      case Periodo.semana:
+        ini = _inicioDaSemana(base);
+        fim = _fimDaSemana(base);
+        break;
+      case Periodo.mes:
+        ini = _inicioDoMes(base);
+        fim = _fimDoMes(base);
+        break;
+      case Periodo.ano:
+        ini = _inicioDoAno(base);
+        fim = _fimDoAno(base);
+        break;
     }
     final List<DateTime> lst = [];
-    for (DateTime d = ini; !d.isAfter(fim); d = d.add(const Duration(days: 1))) { lst.add(d); }
+    for (DateTime d = ini; !d.isAfter(fim); d = d.add(const Duration(days: 1))) {
+      lst.add(d);
+    }
     return lst;
   }
 
@@ -248,14 +291,18 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   }
 
   // Calcula min/max Y com folga
-  ({double minY, double maxY}) _rangeYFromSpots(List<FlSpot> spots, {double pad = 1}) {
+  ({double minY, double maxY}) _rangeYFromSpots(List<FlSpot> spots,
+      {double pad = 1}) {
     if (spots.isEmpty) return (minY: 0, maxY: 1);
     double minY = spots.first.y, maxY = spots.first.y;
     for (final s in spots) {
       if (s.y < minY) minY = s.y;
       if (s.y > maxY) maxY = s.y;
     }
-    if (minY == maxY) { minY -= 1; maxY += 1; }
+    if (minY == maxY) {
+      minY -= 1;
+      maxY += 1;
+    }
     return (minY: (minY - pad), maxY: (maxY + pad));
   }
 
@@ -283,8 +330,13 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
 
   String _normalizeTipo(String raw) {
     final v = raw.trim().toLowerCase();
-    if (v.contains('lanche') && (v.contains('manhã') || v.contains('manha'))) return 'Lanche da manhã';
-    if (v.contains('lanche') && v.contains('tarde')) return 'Lanche da tarde';
+    if (v.contains('lanche') &&
+        (v.contains('manhã') || v.contains('manha'))) {
+      return 'Lanche da manhã';
+    }
+    if (v.contains('lanche') && v.contains('tarde')) {
+      return 'Lanche da tarde';
+    }
     if (v.contains('café')) return 'Café da Manhã';
     if (v.contains('almo')) return 'Almoço';
     if (v.contains('jantar')) return 'Jantar';
@@ -295,12 +347,24 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
 
   String _alimentoKey(String tipo, int? refeicaoId, dynamic alimento) {
     int? aid;
-    try { aid = (alimento.id as int?); } catch (_) {}
-    if (aid == null) { try { aid = (alimento.alimentoId as int?); } catch (_) {} }
-    if (aid == null) { try { aid = (alimento.alimento_id as int?); } catch (_) {} }
+    try {
+      aid = (alimento.id as int?);
+    } catch (_) {}
+    if (aid == null) {
+      try {
+        aid = (alimento.alimentoId as int?);
+      } catch (_) {}
+    }
+    if (aid == null) {
+      try {
+        aid = (alimento.alimento_id as int?);
+      } catch (_) {}
+    }
 
     String nome = '';
-    try { nome = (alimento.nome ?? '').toString(); } catch (_) {}
+    try {
+      nome = (alimento.nome ?? '').toString();
+    } catch (_) {}
 
     final t = _normalizeTipo(tipo);
     final rid = refeicaoId?.toString() ?? '0';
@@ -360,7 +424,9 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
         final List alimentos = (r.alimentos as List?) ?? const [];
         for (final a in alimentos) {
           num? kcal;
-          try { kcal = (a.calorias ?? a.kcal) as num?; } catch (_) {}
+          try {
+            kcal = (a.calorias ?? a.kcal) as num?;
+          } catch (_) {}
           if (kcal == null) continue;
           final key = _alimentoKey(tipo, rid, a);
           if (checks[key] == true) total += kcal;
@@ -379,14 +445,18 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     return serie;
   }
 
-  ({double minY, double maxY}) _rangeFromValues(List<double> values, {double pad = 20}) {
+  ({double minY, double maxY}) _rangeFromValues(List<double> values,
+      {double pad = 20}) {
     if (values.isEmpty) return (minY: 0, maxY: 100);
     double minY = values.first, maxY = values.first;
     for (final v in values) {
       if (v < minY) minY = v;
       if (v > maxY) maxY = v;
     }
-    if (minY == maxY) { minY = 0; maxY = maxY + 100; }
+    if (minY == maxY) {
+      minY = 0;
+      maxY = maxY + 100;
+    }
     return (minY: (minY - pad).clamp(0, double.infinity), maxY: (maxY + pad));
   }
 
@@ -395,7 +465,8 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   Widget build(BuildContext context) {
     final datas = _datasNoPeriodo(_baseDate, _periodo);
     final pesoSpots = _spotsFromLog(_pesoLogs, datas);
-    final ({double minY, double maxY}) pesoRange = _rangeYFromSpots(pesoSpots, pad: 0.5);
+    final ({double minY, double maxY}) pesoRange =
+    _rangeYFromSpots(pesoSpots, pad: 0.5);
 
     // medidas
     final Map<MedidaKind, Map<String, double>> allLogs = {
@@ -405,7 +476,8 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
       MedidaKind.perna: _pernaLogs,
     };
     final medidaSpots = _spotsFromLog(allLogs[_medidaSelecionada]!, datas);
-    final ({double minY, double maxY}) medidaRange = _rangeYFromSpots(medidaSpots, pad: 0.5);
+    final ({double minY, double maxY}) medidaRange =
+    _rangeYFromSpots(medidaSpots, pad: 0.5);
 
     return Scaffold(
       backgroundColor: kBg,
@@ -415,14 +487,23 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
         backgroundColor: Colors.transparent,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [kPrimary, kPrimarySoft], begin: Alignment.topLeft, end: Alignment.bottomRight),
+            gradient: LinearGradient(
+                colors: [kPrimary, kPrimarySoft],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight),
           ),
         ),
         title: Column(
           children: const [
-            Text('Relatórios', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20, letterSpacing: .2)),
+            Text('Relatórios',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                    letterSpacing: .2)),
             SizedBox(height: 2),
-            Text('Acompanhamento e métricas', style: TextStyle(color: Colors.white70, fontSize: 12)),
+            Text('Acompanhamento e métricas',
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
           ],
         ),
       ),
@@ -437,7 +518,9 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Período', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                  const Text('Período',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, color: kText)),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -453,7 +536,11 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                     children: [
                       const Icon(Icons.date_range, color: kPrimary),
                       const SizedBox(width: 8),
-                      Expanded(child: Text(_labelPeriodo(), style: const TextStyle(fontWeight: FontWeight.w600))),
+                      Expanded(
+                        child: Text(_labelPeriodo(),
+                            style:
+                            const TextStyle(fontWeight: FontWeight.w600)),
+                      ),
                       TextButton.icon(
                         onPressed: _pickPeriodoDate,
                         icon: const Icon(Icons.edit_calendar_outlined),
@@ -477,7 +564,9 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                     children: const [
                       Icon(Icons.local_fire_department, color: kPrimary),
                       SizedBox(width: 8),
-                      Text('Kcal consumidas por dia', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                      Text('Kcal consumidas por dia',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700, color: kText)),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -485,12 +574,15 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                     future: _serieKcal(datas),
                     builder: (context, snap) {
                       if (snap.connectionState == ConnectionState.waiting) {
-                        return _emptyChartPlaceholder('Calculando consumo de kcal...');
+                        return _emptyChartPlaceholder(
+                            'Calculando consumo de kcal...');
                       }
                       final values = snap.data ?? const <double>[];
-                      final bool allZero = values.isEmpty || values.every((v) => v == 0);
+                      final bool allZero =
+                          values.isEmpty || values.every((v) => v == 0);
                       if (allZero) {
-                        return _emptyChartPlaceholder('Sem consumo marcado no período selecionado.');
+                        return _emptyChartPlaceholder(
+                            'Sem consumo marcado no período selecionado.');
                       }
                       final range = _rangeFromValues(values);
                       return SizedBox(
@@ -511,12 +603,19 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Peso diário (gráfico)', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                  const Text('Peso diário (kg)',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, color: kText)),
                   const SizedBox(height: 10),
                   if (pesoSpots.isEmpty)
-                    _emptyChartPlaceholder('Sem registros de peso neste período.\\nCadastre pesos na aba Registro.'),
+                    _emptyChartPlaceholder(
+                        'Sem registros de peso neste período.\nCadastre pesos na aba Registro.'),
                   if (pesoSpots.isNotEmpty)
-                    SizedBox(height: 220, child: _buildLineChart(datas, pesoSpots, pesoRange, unidade: 'kg')),
+                    SizedBox(
+                        height: 220,
+                        child: _buildLineChart(
+                            datas, pesoSpots, pesoRange,
+                            unidade: 'kg')),
                 ],
               ),
             ),
@@ -543,20 +642,38 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('IMC Atual', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
-                        const SizedBox(height: 6),
-                        Text(_imc == null ? '--' : _imc!.toStringAsFixed(1),
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText)),
-                        const SizedBox(height: 4),
-                        Text(_imcCategoria, style: TextStyle(color: _imcCor, fontWeight: FontWeight.w600)),
+                        const Text('IMC Atual',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700, color: kText)),
                         const SizedBox(height: 6),
                         Text(
-                          _alturaCentimetros == null ? 'Altura: --' : 'Altura: ${_alturaCentimetros!.toStringAsFixed(1)} cm',
-                          style: const TextStyle(color: Colors.black54),
+                          _imc == null
+                              ? '--'
+                              : _imc!.toStringAsFixed(1),
+                          style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: kText),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(_imcCategoria,
+                            style: TextStyle(
+                                color: _imcCor,
+                                fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 6),
+                        Text(
+                          _alturaCentimetros == null
+                              ? 'Altura: --'
+                              : 'Altura: ${_alturaCentimetros!.toStringAsFixed(1)} cm',
+                          style:
+                          const TextStyle(color: Colors.black54),
                         ),
                         Text(
-                          _peso == null ? 'Peso: --' : 'Peso: ${_peso!.toStringAsFixed(1)} kg',
-                          style: const TextStyle(color: Colors.black54),
+                          _peso == null
+                              ? 'Peso: --'
+                              : 'Peso: ${_peso!.toStringAsFixed(1)} kg',
+                          style:
+                          const TextStyle(color: Colors.black54),
                         ),
                       ],
                     ),
@@ -576,7 +693,9 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Evolução das medidas (cm)', style: TextStyle(fontWeight: FontWeight.w700, color: kText)),
+                      const Text('Evolução das medidas (cm)',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700, color: kText)),
                       const SizedBox(height: 8),
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
@@ -585,12 +704,20 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Builder(builder: (_) {
-                    if (medidaSpots.isEmpty) {
-                      return _emptyChartPlaceholder('Sem registros para esta medida.\\nCadastre medidas na aba Registro.');
-                    }
-                    return SizedBox(height: 200, child: _buildLineChart(datas, medidaSpots, medidaRange, unidade: 'cm'));
-                  }),
+                  Builder(
+                    builder: (_) {
+                      if (medidaSpots.isEmpty) {
+                        return _emptyChartPlaceholder(
+                            'Sem registros para esta medida.\nCadastre medidas na aba Registro.');
+                      }
+                      return SizedBox(
+                        height: 200,
+                        child: _buildLineChart(
+                            datas, medidaSpots, medidaRange,
+                            unidade: 'cm'),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -605,7 +732,12 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   BoxDecoration _cardDeco() => BoxDecoration(
     color: Colors.white,
     borderRadius: BorderRadius.circular(16),
-    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 10, offset: Offset(0,4))],
+    boxShadow: const [
+      BoxShadow(
+          color: Color(0x14000000),
+          blurRadius: 10,
+          offset: Offset(0, 4))
+    ],
     border: Border.all(color: const Color(0x11000000)),
   );
 
@@ -618,11 +750,15 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0x11000000)),
       ),
-      child: Text(msg, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+      child: Text(msg,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.grey)),
     );
   }
 
-  Widget _buildLineChart(List<DateTime> datas, List<FlSpot> spots, ({double minY, double maxY}) range, {required String unidade}) {
+  Widget _buildLineChart(List<DateTime> datas, List<FlSpot> spots,
+      ({double minY, double maxY}) range,
+      {required String unidade}) {
     return LineChart(
       LineChartData(
         minY: range.minY,
@@ -633,10 +769,14 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               showTitles: true,
               getTitlesWidget: (value, meta) {
                 final idx = value.toInt();
-                if (idx < 0 || idx >= datas.length) return const SizedBox.shrink();
+                if (idx < 0 || idx >= datas.length) {
+                  return const SizedBox.shrink();
+                }
                 final d = datas[idx];
                 return Text(
-                  _periodo == Periodo.ano ? DateFormat('MM', 'pt_BR').format(d) : DateFormat('dd', 'pt_BR').format(d),
+                  _periodo == Periodo.ano
+                      ? DateFormat('MM', 'pt_BR').format(d)
+                      : DateFormat('dd', 'pt_BR').format(d),
                   style: const TextStyle(fontSize: 10),
                 );
               },
@@ -645,12 +785,16 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
             ),
           ),
           leftTitles: AxisTitles(
-            sideTitles: SideTitles(showTitles: true, reservedSize: 44),
+            sideTitles:
+            SideTitles(showTitles: true, reservedSize: 44),
           ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false)),
         ),
-        gridData: FlGridData(show: true, drawHorizontalLine: true),
+        gridData:
+        FlGridData(show: true, drawHorizontalLine: true),
         lineBarsData: [
           LineChartBarData(
             spots: spots,
@@ -662,12 +806,17 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
         ],
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
-            getTooltipItems: (touchedSpots) => touchedSpots.map((it) {
+            getTooltipItems: (touchedSpots) => touchedSpots
+                .map((it) {
               final idx = it.x.toInt();
               final d = datas[idx];
-              final labelData = DateFormat('dd/MM', 'pt_BR').format(d);
-              return LineTooltipItem('$labelData ${it.y.toStringAsFixed(1)} $unidade', const TextStyle(color: Colors.white));
-            }).toList(),
+              final labelData =
+              DateFormat('dd/MM', 'pt_BR').format(d);
+              return LineTooltipItem(
+                  '$labelData ${it.y.toStringAsFixed(1)} $unidade',
+                  const TextStyle(color: Colors.white));
+            })
+                .toList(),
           ),
         ),
       ),
@@ -676,14 +825,15 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
 
   // === NOVO: intervalo "micro" para o gráfico de kcal ===
   double _yIntervalForKcal(double span) {
-    if (span <= 120) return 20;   // valores próximos (20 kcal)
-    if (span <= 300) return 50;   // faixa pequena
-    if (span <= 600) return 100;  // faixa média
-    return 200;                   // faixa maior
+    if (span <= 120) return 20; // valores próximos (20 kcal)
+    if (span <= 300) return 50; // faixa pequena
+    if (span <= 600) return 100; // faixa média
+    return 200; // faixa maior
   }
 
   // gráfico de barras de kcal por dia (ATUALIZADO: eixo Y mais "micro" e sem sufixo K)
-  Widget _buildBarChartKcal(List<DateTime> datas, List<double> valores, ({double minY, double maxY}) range) {
+  Widget _buildBarChartKcal(List<DateTime> datas, List<double> valores,
+      ({double minY, double maxY}) range) {
     final span = (range.maxY - range.minY).abs();
     final yInterval = _yIntervalForKcal(span);
     final nf = NumberFormat('#,##0', 'pt_BR'); // ex.: 2.865 (sem 'K')
@@ -698,15 +848,20 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
           horizontalInterval: yInterval,
         ),
         titlesData: FlTitlesData(
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false)),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 48,
               interval: yInterval,
               getTitlesWidget: (value, meta) {
-                return Text(nf.format(value), style: const TextStyle(fontSize: 10));
+                return Text(
+                  nf.format(value),
+                  style: const TextStyle(fontSize: 10),
+                );
               },
             ),
           ),
@@ -717,10 +872,14 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               reservedSize: 24,
               getTitlesWidget: (value, meta) {
                 final idx = value.toInt();
-                if (idx < 0 || idx >= datas.length) return const SizedBox.shrink();
+                if (idx < 0 || idx >= datas.length) {
+                  return const SizedBox.shrink();
+                }
                 final d = datas[idx];
                 return Text(
-                  _periodo == Periodo.ano ? DateFormat('MM', 'pt_BR').format(d) : DateFormat('dd', 'pt_BR').format(d),
+                  _periodo == Periodo.ano
+                      ? DateFormat('MM', 'pt_BR').format(d)
+                      : DateFormat('dd', 'pt_BR').format(d),
                   style: const TextStyle(fontSize: 10),
                 );
               },
@@ -732,9 +891,13 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
           touchTooltipData: BarTouchTooltipData(
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
               final d = datas[group.x.toInt()];
-              final label = DateFormat('dd/MM', 'pt_BR').format(d);
+              final label =
+              DateFormat('dd/MM', 'pt_BR').format(d);
               final v = rod.toY;
-              return BarTooltipItem('$label ${v.toStringAsFixed(0)} kcal', const TextStyle(color: Colors.white));
+              return BarTooltipItem(
+                '$label ${v.toStringAsFixed(0)} kcal',
+                const TextStyle(color: Colors.white),
+              );
             },
           ),
         ),
@@ -745,7 +908,8 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
               BarChartRodData(
                 toY: valores[i],
                 width: 12,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(6)),
                 color: kPrimary,
               ),
             ],
@@ -758,10 +922,14 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   Widget _medidaSelector() {
     String label(MedidaKind k) {
       switch (k) {
-        case MedidaKind.cintura: return 'Cintura';
-        case MedidaKind.quadril: return 'Quadril';
-        case MedidaKind.braco:   return 'Braço';
-        case MedidaKind.perna:   return 'Perna';
+        case MedidaKind.cintura:
+          return 'Cintura';
+        case MedidaKind.quadril:
+          return 'Quadril';
+        case MedidaKind.braco:
+          return 'Braço';
+        case MedidaKind.perna:
+          return 'Perna';
       }
     }
 
@@ -772,9 +940,12 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
         return ChoiceChip(
           label: Text(label(k)),
           selected: selected,
-          onSelected: (_) => setState(() => _medidaSelecionada = k),
+          onSelected: (_) =>
+              setState(() => _medidaSelecionada = k),
           selectedColor: kPrimarySoft,
-          labelStyle: TextStyle(color: selected ? Colors.white : kText, fontWeight: FontWeight.w600),
+          labelStyle: TextStyle(
+              color: selected ? Colors.white : kText,
+              fontWeight: FontWeight.w600),
           backgroundColor: Colors.white,
           side: const BorderSide(color: Color(0x11000000)),
         );
@@ -789,7 +960,9 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
       selected: selected,
       onSelected: (_) => setState(() => _periodo = p),
       selectedColor: kPrimarySoft,
-      labelStyle: TextStyle(color: selected ? Colors.white : kText, fontWeight: FontWeight.w600),
+      labelStyle: TextStyle(
+          color: selected ? Colors.white : kText,
+          fontWeight: FontWeight.w600),
       backgroundColor: Colors.white,
       side: const BorderSide(color: Color(0x11000000)),
     );

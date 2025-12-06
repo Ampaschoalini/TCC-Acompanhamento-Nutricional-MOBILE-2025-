@@ -664,9 +664,6 @@ class _PerfilPageState extends State<PerfilPage> {
 
   Future<void> _logout() async {
     if (!mounted) return;
-
-    // Apenas redireciona para a tela de login,
-    // removendo todas as rotas anteriores da pilha.
     Navigator.of(context).pushNamedAndRemoveUntil(
       '/login',
           (route) => false,

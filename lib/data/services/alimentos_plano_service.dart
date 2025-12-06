@@ -41,16 +41,17 @@ class AlimentosPlanoService {
     try {
       dietas = await _remote.getDietasByPacienteId(pacienteId);
     } catch (e) {
-      // Em teoria, o DietaService já está protegendo, mas deixo aqui por segurança
+      // Em teoria, o DietaService já está protegido, mas deixo aqui por segurança
       final locais = await _localDb.getAlimentosPlano();
       if (locais.isNotEmpty) return locais;
       return <Alimento>[];
     }
 
     // Achata Dieta -> Refeições -> Alimentos
-    final alimentos = dietas
+    final List<Alimento> alimentos = dietas
         .expand((d) => d.refeicoes)
         .expand((r) => r.alimentos)
+        .cast<Alimento>()
         .toList();
 
     // 3) Se a API devolveu vazio, preferimos o cache (se existir)

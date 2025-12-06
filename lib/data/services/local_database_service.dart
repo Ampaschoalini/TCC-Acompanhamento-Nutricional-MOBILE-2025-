@@ -18,7 +18,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 3, // user + alimentos_plano + nutricionista
+      version: 4, // user + alimentos_plano + nutricionista + perfil estendido
       onCreate: (db, version) async {
         // Usuário (login / perfil offline)
         await db.execute('''
@@ -29,7 +29,18 @@ class LocalDatabaseService {
             senha TEXT,
             tipo TEXT,
             telefone TEXT,
-            dataNascimento TEXT
+            dataNascimento TEXT,
+            genero TEXT,
+            objetivo TEXT,
+            frequencia_exercicio_semanal TEXT,
+            restricao_alimentar TEXT,
+            alergia TEXT,
+            observacao TEXT,
+            habitos_alimentares TEXT,
+            historico_familiar_doencas TEXT,
+            doencas_cronicas TEXT,
+            medicamentos_em_uso TEXT,
+            exames_de_sangue_relevantes TEXT
           )
         ''');
 
@@ -102,6 +113,21 @@ class LocalDatabaseService {
             )
           ''');
         }
+        if (oldVersion < 4) {
+          final batch = db.batch();
+          batch.execute("ALTER TABLE user ADD COLUMN genero TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN objetivo TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN frequencia_exercicio_semanal TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN restricao_alimentar TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN alergia TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN observacao TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN habitos_alimentares TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN historico_familiar_doencas TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN doencas_cronicas TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN medicamentos_em_uso TEXT");
+          batch.execute("ALTER TABLE user ADD COLUMN exames_de_sangue_relevantes TEXT");
+          await batch.commit(noResult: true);
+        }
       },
     );
   }
@@ -159,6 +185,17 @@ class LocalDatabaseService {
     String? telefone,
     String? dataNascimento,
     String? tipo,
+    String? genero,
+    String? objetivo,
+    String? frequenciaExercicioSemanal,
+    String? restricaoAlimentar,
+    String? alergia,
+    String? observacao,
+    String? habitosAlimentares,
+    String? historicoFamiliarDoencas,
+    String? doencasCronicas,
+    String? medicamentosEmUso,
+    String? examesDeSangueRelevantes,
   }) async {
     final db = await database;
 
@@ -168,6 +205,31 @@ class LocalDatabaseService {
     if (telefone != null) data['telefone'] = telefone;
     if (dataNascimento != null) data['dataNascimento'] = dataNascimento;
     if (tipo != null) data['tipo'] = tipo;
+    if (genero != null) data['genero'] = genero;
+    if (objetivo != null) data['objetivo'] = objetivo;
+    if (frequenciaExercicioSemanal != null) {
+      data['frequencia_exercicio_semanal'] = frequenciaExercicioSemanal;
+    }
+    if (restricaoAlimentar != null) {
+      data['restricao_alimentar'] = restricaoAlimentar;
+    }
+    if (alergia != null) data['alergia'] = alergia;
+    if (observacao != null) data['observacao'] = observacao;
+    if (habitosAlimentares != null) {
+      data['habitos_alimentares'] = habitosAlimentares;
+    }
+    if (historicoFamiliarDoencas != null) {
+      data['historico_familiar_doencas'] = historicoFamiliarDoencas;
+    }
+    if (doencasCronicas != null) {
+      data['doencas_cronicas'] = doencasCronicas;
+    }
+    if (medicamentosEmUso != null) {
+      data['medicamentos_em_uso'] = medicamentosEmUso;
+    }
+    if (examesDeSangueRelevantes != null) {
+      data['exames_de_sangue_relevantes'] = examesDeSangueRelevantes;
+    }
 
     if (data.isEmpty) return 0;
 
