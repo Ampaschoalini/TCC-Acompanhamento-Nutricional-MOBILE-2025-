@@ -18,7 +18,6 @@ class PlanoAlimentarService {
   Future<bool> _isOffline() async {
     final result = await Connectivity().checkConnectivity();
 
-    // compatível com versões que retornam lista ou um único enum
     if (result is List<ConnectivityResult>) {
       return result.contains(ConnectivityResult.none);
     } else {
@@ -30,30 +29,34 @@ class PlanoAlimentarService {
   Future<List<Dieta>> getDietasByPacienteId(int pacienteId) async {
     final offline = await _isOffline();
 
-    // 1) Sem conexão → usa só o cache local
     if (offline) {
-      return _localDb.getPlano(pacienteId);
+      final locais = await _localDb.getPlano(pacienteId);
+      if (locais.isNotEmpty) return locais;
+
+      final qualquer = await _localDb.getQualquerPlano();
+      return qualquer;
     }
 
     List<Dieta> dietas;
 
-    // 2) Com conexão → tenta API
     try {
       dietas = await _remote.getDietasByPacienteId(pacienteId);
     } catch (e) {
       final locais = await _localDb.getPlano(pacienteId);
       if (locais.isNotEmpty) return locais;
-      return <Dieta>[];
+
+      final qualquer = await _localDb.getQualquerPlano();
+      return qualquer;
     }
 
-    // 3) Se a API devolveu vazio, preferimos o cache (se existir)
     if (dietas.isEmpty) {
       final locais = await _localDb.getPlano(pacienteId);
       if (locais.isNotEmpty) return locais;
-      return <Dieta>[];
+
+      final qualquer = await _localDb.getQualquerPlano();
+      return qualquer;
     }
 
-    // 4) API trouxe dados válidos → atualiza cache e retorna
     await _localDb.salvarPlano(pacienteId, dietas);
     return dietas;
   }

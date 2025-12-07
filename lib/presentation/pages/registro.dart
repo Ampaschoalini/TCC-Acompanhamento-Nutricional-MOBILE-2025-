@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/registro_local_database_service.dart';
+import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/local_database_service.dart';
 
 // === Cores do tema ===
 const Color kBg = Color(0xFFF5F5F5);
@@ -18,7 +19,6 @@ const Color kText = Color(0xFF444444);
 const String kApiBaseUrl =
 String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8800');
 
-// Centralize aqui os caminhos (para salvar no backend)
 const List<String> kUpdatePathVariants = [
   '/patient/updatePatientById/{id}',
   '/patient/update/{id}',
@@ -26,7 +26,6 @@ const List<String> kUpdatePathVariants = [
   '/patients/{id}',
   '/api/patient/updatePatientById/{id}',
   '/api/patient/{id}',
-  // Endpoints que esperam o id no corpo (sem :id no path)
   '/patient/updatePatientById',
   '/api/patient/updatePatientById',
 ];
@@ -45,7 +44,7 @@ class RegistroPage extends StatefulWidget {
 }
 
 class _RegistroPageState extends State<RegistroPage> {
-  // Data do registro (você escolhe em qual dia quer lançar)
+  // Data do registro
   DateTime _dataRegistro = DateTime.now();
 
   // Dados atuais
@@ -66,16 +65,16 @@ class _RegistroPageState extends State<RegistroPage> {
   final TextEditingController _bracoCtrl = TextEditingController();
   final TextEditingController _pernaCtrl = TextEditingController();
 
-  // Logs por dia
   Map<String, double> _pesoLogs = {}; // 'yyyy-MM-dd' -> kg
   Map<String, double> _cinturaLogs = {}; // cm
   Map<String, double> _quadrilLogs = {}; // cm
   Map<String, double> _bracoLogs = {}; // cm
   Map<String, double> _pernaLogs = {}; // cm
 
-  // SQLite para updates offline
   final RegistroLocalDatabaseService _registroLocalDb =
   RegistroLocalDatabaseService();
+
+  final LocalDatabaseService _localDb = LocalDatabaseService();
 
   @override
   void initState() {
@@ -231,7 +230,7 @@ class _RegistroPageState extends State<RegistroPage> {
     }
     final int id = _pacienteId!;
 
-    // 1) Se for ação do usuário (não é sync automático) e já detectamos offline, só enfileira
+    // 1) Se for ação do usuário (não é sync automático)
     if (!fromSync) {
       final offline = await _isOffline();
       if (offline) {
@@ -285,7 +284,6 @@ class _RegistroPageState extends State<RegistroPage> {
           }
 
           if (resp.statusCode == 404 || resp.statusCode == 405) {
-            // Tenta o próximo endpoint
             continue;
           } else {
             // Erro de servidor conhecido (ex.: 400, 500...)
@@ -296,13 +294,11 @@ class _RegistroPageState extends State<RegistroPage> {
             return false;
           }
         } catch (e) {
-          // AQUI é o caso de "Connection failed", timeout, etc.
           if (kDebugMode) {
             debugPrint('Erro $method $uri: $e');
           }
 
           if (!fromSync) {
-            // Tratar como OFFLINE → enfileira no SQLite e aplica local
             await _registroLocalDb.addPendingUpdate(id, payload);
             await _aplicarPayloadLocal(payload);
             if (mounted) {
@@ -312,7 +308,6 @@ class _RegistroPageState extends State<RegistroPage> {
             }
             return true;
           } else {
-            // Se for sync automático, só para e tenta de novo mais tarde
             return false;
           }
         }
@@ -356,7 +351,6 @@ class _RegistroPageState extends State<RegistroPage> {
       if (ok) {
         await _registroLocalDb.deleteUpdate(rowId);
       } else {
-        // se falhar, para aqui e tenta de novo mais tarde
         break;
       }
     }
@@ -369,10 +363,40 @@ class _RegistroPageState extends State<RegistroPage> {
   String _keyFor(DateTime d) =>
       _keyFormatter.format(DateTime(d.year, d.month, d.day));
 
+  Future<void> _salvarRegistroDiarioNoSQLite(DateTime d) async {
+    final id = _pacienteId ?? 0;
+    if (id == 0) return;
+
+    final k = _keyFor(d);
+    final peso = _pesoLogs[k];
+    final cintura = _cinturaLogs[k];
+    final quadril = _quadrilLogs[k];
+    final braco = _bracoLogs[k];
+    final perna = _pernaLogs[k];
+
+    try {
+      await _localDb.upsertRegistroDiario(
+        pacienteId: id,
+        data: d,
+        peso: peso,
+        cintura: cintura,
+        quadril: quadril,
+        braco: braco,
+        perna: perna,
+        // kcalDia será preenchido na tela de Relatórios
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Erro ao salvar registro diário no SQLite: \$e');
+      }
+    }
+  }
+
   Future<void> _registrarPesoNoDia(DateTime d, double valor) async {
     final k = _keyFor(d);
     setState(() => _pesoLogs[k] = valor);
     await _writeLogsMap('logs_peso', _pesoLogs);
+    await _salvarRegistroDiarioNoSQLite(d);
   }
 
   Future<void> _registrarMedidaNoDia(
@@ -408,6 +432,8 @@ class _RegistroPageState extends State<RegistroPage> {
         await _writeLogsMap('logs_perna', _pernaLogs);
         break;
     }
+
+    await _salvarRegistroDiarioNoSQLite(d);
   }
 
   // -------------------- Ações dos botões Salvar --------------------

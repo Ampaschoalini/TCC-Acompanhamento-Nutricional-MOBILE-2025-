@@ -29,7 +29,6 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
 
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getInt('nutricionista_id');
-    // ignore: avoid_print
     print("Nutricionista ID (SharedPreferences): $id");
 
     if (id == null) {
@@ -47,8 +46,6 @@ class _NutricionistaPageState extends State<NutricionistaPage> {
         isLoading = false;
       });
     } catch (e) {
-      // Deve ser raro, já que o service captura quase tudo
-      // ignore: avoid_print
       print('Erro inesperado ao carregar nutricionista: $e');
       setState(() {
         isLoading = false;

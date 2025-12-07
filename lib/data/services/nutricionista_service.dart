@@ -25,7 +25,6 @@ class NutricionistaService {
     final offline = await _isOffline();
 
     if (offline) {
-      // Sem internet → tenta direto o cache local
       return _localDb.getNutricionistaById(id);
     }
 
@@ -45,14 +44,11 @@ class NutricionistaService {
         }
 
         if (nutri != null) {
-          // Atualiza cache local
           await _localDb.saveNutricionista(nutri);
         }
 
         return nutri;
       } else {
-        // Erro HTTP → tenta usar cache
-        // ignore: avoid_print
         print(
           'Erro HTTP em getNutricionistById: '
               'status=${response.statusCode} body=${response.body}',
@@ -60,8 +56,6 @@ class NutricionistaService {
         return _localDb.getNutricionistaById(id);
       }
     } catch (e) {
-      // Erro de conexão ("Connection failed", timeout, etc.) → cache
-      // ignore: avoid_print
       print('Erro de conexão em getNutricionistById: $e');
       return _localDb.getNutricionistaById(id);
     }

@@ -46,7 +46,6 @@ class Refeicao {
   }
 
   factory Refeicao.fromJson(Map<String, dynamic> json) {
-    // Aceita chaves snake_case e camelCase
     final rawTipo = (json['tipoRefeicao'] ?? json['tipo_refeicao'] ?? '').toString();
     final rawHorario = (json['horario'] ?? json['hora'] ?? '').toString();
 
@@ -73,7 +72,7 @@ class Refeicao {
 
   Map<String, dynamic> toJson() {
     return {
-      // Exporta em snake_case por compatibilidade com o backend
+      // snake_case
       'refeicao_id': id,
       'dieta_id': dietaId,
       'tipo_refeicao': tipoRefeicao,

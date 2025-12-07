@@ -18,9 +18,8 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 4, // user + alimentos_plano + nutricionista + perfil estendido
+      version: 5,
       onCreate: (db, version) async {
-        // Usuário (login / perfil offline)
         await db.execute('''
           CREATE TABLE user (
             id INTEGER PRIMARY KEY,
@@ -77,6 +76,22 @@ class LocalDatabaseService {
             linkedin TEXT
           )
         ''');
+
+        // Registros diários de peso, medidas e kcal (para relatórios)
+        await db.execute('''
+          CREATE TABLE registros_diarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            paciente_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            peso REAL,
+            cintura REAL,
+            quadril REAL,
+            braco REAL,
+            perna REAL,
+            kcal_dia REAL,
+            UNIQUE(paciente_id, data)
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -128,6 +143,22 @@ class LocalDatabaseService {
           batch.execute("ALTER TABLE user ADD COLUMN exames_de_sangue_relevantes TEXT");
           await batch.commit(noResult: true);
         }
+        if (oldVersion < 5) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS registros_diarios (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              paciente_id INTEGER NOT NULL,
+              data TEXT NOT NULL,
+              peso REAL,
+              cintura REAL,
+              quadril REAL,
+              braco REAL,
+              perna REAL,
+              kcal_dia REAL,
+              UNIQUE(paciente_id, data)
+            )
+          ''');
+        }
       },
     );
   }
@@ -166,7 +197,7 @@ class LocalDatabaseService {
     return res.isNotEmpty ? res.first : null;
   }
 
-  /// 🔹 novo: usado para fallback offline do perfil
+  /// usado para fallback offline do perfil
   Future<Map<String, dynamic>?> getUserById(int id) async {
     final db = await database;
     final res = await db.query(
@@ -353,5 +384,99 @@ class LocalDatabaseService {
   Future<void> clearNutricionista() async {
     final db = await database;
     await db.delete('nutricionista');
+  }
+
+  // ================== REGISTROS DIÁRIOS (peso, medidas, kcal) ==================
+
+  String _dateKey(DateTime d) {
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
+
+  Future<void> upsertRegistroDiario({
+    required int pacienteId,
+    required DateTime data,
+    double? peso,
+    double? cintura,
+    double? quadril,
+    double? braco,
+    double? perna,
+    double? kcalDia,
+  }) async {
+    final db = await database;
+    final dataKey = _dateKey(data);
+
+    final existing = await db.query(
+      'registros_diarios',
+      where: 'paciente_id = ? AND data = ?',
+      whereArgs: [pacienteId, dataKey],
+      limit: 1,
+    );
+
+    final Map<String, Object?> row = existing.isNotEmpty
+        ? Map<String, Object?>.from(existing.first)
+        : {
+      'paciente_id': pacienteId,
+      'data': dataKey,
+    };
+
+    if (peso != null) row['peso'] = peso;
+    if (cintura != null) row['cintura'] = cintura;
+    if (quadril != null) row['quadril'] = quadril;
+    if (braco != null) row['braco'] = braco;
+    if (perna != null) row['perna'] = perna;
+    if (kcalDia != null) row['kcal_dia'] = kcalDia;
+
+    row.remove('id');
+
+    await db.insert(
+      'registros_diarios',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getRegistroDiario(
+      int pacienteId, DateTime data) async {
+    final db = await database;
+    final key = _dateKey(data);
+    final res = await db.query(
+      'registros_diarios',
+      where: 'paciente_id = ? AND data = ?',
+      whereArgs: [pacienteId, key],
+      limit: 1,
+    );
+    return res.isNotEmpty ? res.first : null;
+  }
+
+  Future<List<Map<String, dynamic>>> getRegistrosDiariosByPaciente(
+      int pacienteId) async {
+    final db = await database;
+    final res = await db.query(
+      'registros_diarios',
+      where: 'paciente_id = ?',
+      whereArgs: [pacienteId],
+      orderBy: 'data',
+    );
+    return res;
+  }
+
+  Future<List<Map<String, dynamic>>> getRegistrosDiariosPorPeriodo({
+    required int pacienteId,
+    required DateTime inicio,
+    required DateTime fim,
+  }) async {
+    final db = await database;
+    final iniKey = _dateKey(inicio);
+    final fimKey = _dateKey(fim);
+    final res = await db.query(
+      'registros_diarios',
+      where: 'paciente_id = ? AND data BETWEEN ? AND ?',
+      whereArgs: [pacienteId, iniKey, fimKey],
+      orderBy: 'data',
+    );
+    return res;
   }
 }

@@ -3,13 +3,14 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../data/services/local_database_service.dart';
+import '../../data/services/plano_alimentar_service.dart';
 
 class AuthService {
-  // Emulador Android = 10.0.2.2 | Dispositivo físico = IP da sua máquina
+  // Emulador Android = 10.0.2.2 | Dispositivo físico = IP da máquina
   final String baseUrl = 'http://10.0.2.2:8800';
   final LocalDatabaseService localDb = LocalDatabaseService();
 
-  /// 🔐 Login híbrido: tenta online; se não conseguir falar com o servidor, cai para o SQLite.
+  /// Login híbrido: tenta online; se não conseguir falar com o servidor, cai para o SQLite.
   Future<bool> login(String email, String senha) async {
     final connectivityStatus = await Connectivity().checkConnectivity();
 
@@ -17,12 +18,10 @@ class AuthService {
         ? connectivityStatus.contains(ConnectivityResult.none)
         : connectivityStatus == ConnectivityResult.none;
 
-    // 1) Sem conexão alguma -> tenta direto o SQLite
     if (isOffline) {
       return _loginOffline(email, senha);
     }
 
-    // 2) Com conexão: tenta o backend, e em caso de erro de rede, cai para o SQLite
     try {
       final url = Uri.parse('$baseUrl/login');
       final response = await http.post(
@@ -33,7 +32,6 @@ class AuthService {
 
       print('LOGIN status=${response.statusCode} body=${response.body}');
 
-      // Credenciais inválidas: não faz fallback offline
       if (response.statusCode == 400 || response.statusCode == 401) {
         return false;
       }
@@ -58,53 +56,56 @@ class AuthService {
           return false;
         }
 
-        // Normalização de campos equivalentes
         user['dataNascimento'] =
             user['dataNascimento'] ?? user['data_nascimento'];
         user['telefone'] = user['telefone'] ?? user['phone'];
 
-        // normalizar o campo do nutricionista vindo do backend
         user['nutricionista_id'] = user['nutricionista_id'] ??
             user['nutricionistaId'] ??
             user['nutritionist_id'];
 
-        // Salva prefs em memória
         await _salvarPrefs(user, token: token);
 
-        // Persiste/atualiza o usuário no SQLite para login offline
         await localDb.saveUser({
           'id': user['id'],
           'nome': user['nome'],
           'email': user['email'],
-          'senha': senha, // se quiser, pode trocar por hash depois
+          'senha': senha,
           'tipo': user['tipo'],
           'telefone': user['telefone'] ?? '',
           'dataNascimento': user['dataNascimento'] ?? '',
         });
 
+        try {
+          final planoService = PlanoAlimentarService();
+
+          final rawId = user['id'];
+          final int? pacienteId =
+          rawId is int ? rawId : int.tryParse(rawId.toString());
+
+          if (pacienteId != null && pacienteId > 0) {
+            await planoService.getDietasByPacienteId(pacienteId);
+          }
+        } catch (e) {
+          print('Falha ao pré-carregar plano alimentar: $e');
+        }
+
         return true;
       }
 
-      // Qualquer outro status (500, 503, etc.) -> tenta offline
       return _loginOffline(email, senha);
     } catch (e) {
-      // Erro de rede / timeout / etc -> tenta offline
       return _loginOffline(email, senha);
     }
   }
 
-  /// 🔐 Login somente no SQLite (modo offline)
   Future<bool> _loginOffline(String email, String senha) async {
     final localUser =
     await localDb.getUserByEmailAndPassword(email, senha);
-    if (localUser != null) {
-      await _salvarPrefs(localUser, token: null);
-      return true;
-    }
-    return false;
+
+    return localUser != null;
   }
 
-  /// 👤 Obter dados do usuário logado (cache local no SharedPreferences)
   Future<Map<String, dynamic>> getUsuarioLogado() async {
     final prefs = await SharedPreferences.getInstance();
     return {
@@ -119,7 +120,6 @@ class AuthService {
     };
   }
 
-  /// 🧠 Utilitário para salvar no SharedPreferences
   Future<void> _salvarPrefs(Map<String, dynamic> user, {String? token}) async {
     final prefs = await SharedPreferences.getInstance();
     if (token != null) await prefs.setString('token', token);

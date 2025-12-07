@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
+import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/local_database_service.dart';
 
 // === Modelos e serviço para ler dietas e calcular kcal por dia ===
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/plano_alimentar_service.dart';
@@ -18,11 +19,9 @@ const Color kPrimarySoft = Color(0xFFFFB36B);
 const Color kText = Color(0xFF444444);
 
 // === API do projeto WEB ===
-// Ajuste esta URL conforme o seu backend (ex.: http://10.0.2.2:3000 para emulador Android).
 const String kApiBaseUrl =
 String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8800');
 
-// As rotas abaixo são usadas apenas para LEITURA (GET) aqui.
 const List<String> kGetByIdPathVariants = [
   '/patient/getPatientById/{id}',
   '/patient/{id}',
@@ -49,7 +48,6 @@ class RelatoriosPage extends StatefulWidget {
 }
 
 class _RelatoriosPageState extends State<RelatoriosPage> {
-  // === BEGIN: Helpers de normalização e IMC ===
   double? get _alturaMetros {
     if (_altura == null) return null;
     final a = _altura!;
@@ -68,19 +66,17 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     if (aM == null || aM == 0) return null;
     return _peso! / (aM * aM);
   }
-  // === END: Helpers ===
 
-  // --- Estado geral ---
   Periodo _periodo = Periodo.semana;
   DateTime _baseDate = DateTime.now().toLocal();
 
-  // Dados atuais do paciente (somente leitura nesta tela)
   double? _peso;
   double? _altura;
   int? _pacienteId;
   String? _token;
 
-  // Logs por dia (sobrepõe no mesmo dia)
+  final LocalDatabaseService _localDb = LocalDatabaseService();
+
   Map<String, double> _pesoLogs = {}; // 'yyyy-MM-dd' -> kg
   Map<String, double> _cinturaLogs = {}; // cm
   Map<String, double> _quadrilLogs = {}; // cm
@@ -90,7 +86,6 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   // Exibição do gráfico de medidas
   MedidaKind _medidaSelecionada = MedidaKind.cintura;
 
-  // Dietas e cálculo de kcal consumidas por dia (com base nos checks do Plano Alimentar)
   final PlanoAlimentarService _planoAlimentarService =
   PlanoAlimentarService();
   List<Dieta> _dietas = const [];
@@ -105,7 +100,6 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   Future<void> _carregarPreferenciasEApi() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Últimos valores conhecidos (gravados pela tela de Registro)
     _peso = (prefs.getDouble('peso') ?? (prefs.getInt('peso')?.toDouble()));
     _altura =
     (prefs.getDouble('altura') ?? (prefs.getInt('altura')?.toDouble()));
@@ -113,14 +107,14 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     _pacienteId = prefs.getInt('paciente_id') ?? 0;
     _token = prefs.getString('token');
 
-    // Carrega logs (gravados pela tela de Registro)
     _pesoLogs = _readLogsMap(prefs.getString('logs_peso'));
     _cinturaLogs = _readLogsMap(prefs.getString('logs_cintura'));
     _quadrilLogs = _readLogsMap(prefs.getString('logs_quadril'));
     _bracoLogs = _readLogsMap(prefs.getString('logs_braco'));
     _pernaLogs = _readLogsMap(prefs.getString('logs_perna'));
 
-    // Tenta atualizar com dados do backend (LEITURA apenas)
+    await _carregarLogsDoSQLite();
+
     try {
       await _carregarDadosDoWeb(_pacienteId ?? 0, _token);
     } catch (e) {
@@ -137,13 +131,48 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
           prefs.getInt('paciente_id') ?? (_pacienteId ?? 0) ?? 0;
       if (pid == 0) return;
 
-      // AGORA usando PlanoAlimentarService (online + offline)
       final dietas =
       await _planoAlimentarService.getDietasByPacienteId(pid);
 
       if (mounted) setState(() => _dietas = dietas);
     } catch (e) {
       if (kDebugMode) debugPrint('Falha ao carregar dietas: $e');
+    }
+  }
+
+  Future<void> _carregarLogsDoSQLite() async {
+    final id = _pacienteId ?? 0;
+    if (id == 0) return;
+
+    try {
+      final rows = await _localDb.getRegistrosDiariosByPaciente(id);
+      for (final row in rows) {
+        final dataStr = row['data'] as String?;
+        if (dataStr == null) continue;
+        DateTime? data;
+        try {
+          data = DateTime.parse(dataStr);
+        } catch (_) {
+          continue;
+        }
+        final key = _diaKey(data);
+
+        final peso = _toDouble(row['peso']);
+        final cintura = _toDouble(row['cintura']);
+        final quadril = _toDouble(row['quadril']);
+        final braco = _toDouble(row['braco']);
+        final perna = _toDouble(row['perna']);
+
+        if (peso != null) _pesoLogs[key] = peso;
+        if (cintura != null) _cinturaLogs[key] = cintura;
+        if (quadril != null) _quadrilLogs[key] = quadril;
+        if (braco != null) _bracoLogs[key] = braco;
+        if (perna != null) _pernaLogs[key] = perna;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Falha ao carregar registros_diarios do SQLite: $e');
+      }
     }
   }
 
@@ -290,7 +319,6 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     return spots;
   }
 
-  // Calcula min/max Y com folga
   ({double minY, double maxY}) _rangeYFromSpots(List<FlSpot> spots,
       {double pad = 1}) {
     if (spots.isEmpty) return (minY: 0, maxY: 1);
@@ -306,7 +334,6 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     return (minY: (minY - pad), maxY: (maxY + pad));
   }
 
-  // === Série de kcal consumidas por dia (baseada nos checks do Plano Alimentar) ===
 
   Future<Map<String, bool>> _loadChecksParaDia(DateTime dia) async {
     final prefs = await SharedPreferences.getInstance();
@@ -400,40 +427,79 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     }
   }
 
+  Future<void> _salvarKcalNoSQLite(DateTime dia, double kcal) async {
+    final id = _pacienteId ?? 0;
+    if (id == 0) return;
+    try {
+      await _localDb.upsertRegistroDiario(
+        pacienteId: id,
+        data: dia,
+        kcalDia: kcal,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Falha ao salvar kcal no SQLite: $e');
+      }
+    }
+  }
+
   Future<double> _kcalNoDia(DateTime dia) async {
-    if (_dietas.isEmpty) return 0;
-    final checks = await _getChecksMap(dia);
-    if (checks.isEmpty) return 0;
+    // Tenta calcular com base nas dietas + checks
+    if (_dietas.isNotEmpty) {
+      final checks = await _getChecksMap(dia);
+      if (checks.isNotEmpty) {
+        // filtra dietas válidas para o dia
+        final dOnly = _dateOnly(dia);
+        final dietasValidas = _dietas.where((d) {
+          final inicio = d.dataInicio;
+          final fim = d.dataTermino;
+          if (inicio == null || fim == null) return false;
+          final i = _dateOnly(inicio);
+          final f = _dateOnly(fim);
+          return !dOnly.isBefore(i) && !dOnly.isAfter(f);
+        });
 
-    // filtra dietas válidas para o dia
-    final dOnly = _dateOnly(dia);
-    final dietasValidas = _dietas.where((d) {
-      final inicio = d.dataInicio;
-      final fim = d.dataTermino;
-      if (inicio == null || fim == null) return false;
-      final i = _dateOnly(inicio);
-      final f = _dateOnly(fim);
-      return !dOnly.isBefore(i) && !dOnly.isAfter(f);
-    });
+        num total = 0;
+        for (final d in dietasValidas) {
+          for (final r in d.refeicoes) {
+            final String tipo = _tipoFromRefeicao(r);
+            final int? rid = _idFromRefeicao(r);
+            final List alimentos = (r.alimentos as List?) ?? const [];
+            for (final a in alimentos) {
+              num? kcal;
+              try {
+                kcal = (a.calorias ?? a.kcal) as num?;
+              } catch (_) {}
+              if (kcal == null) continue;
+              final key = _alimentoKey(tipo, rid, a);
+              if (checks[key] == true) total += kcal;
+            }
+          }
+        }
 
-    num total = 0;
-    for (final d in dietasValidas) {
-      for (final r in d.refeicoes) {
-        final String tipo = _tipoFromRefeicao(r);
-        final int? rid = _idFromRefeicao(r);
-        final List alimentos = (r.alimentos as List?) ?? const [];
-        for (final a in alimentos) {
-          num? kcal;
-          try {
-            kcal = (a.calorias ?? a.kcal) as num?;
-          } catch (_) {}
-          if (kcal == null) continue;
-          final key = _alimentoKey(tipo, rid, a);
-          if (checks[key] == true) total += kcal;
+        final totalDouble = total.toDouble();
+        await _salvarKcalNoSQLite(dia, totalDouble);
+        return totalDouble;
+      }
+    }
+
+    // Se não foi possível calcular, tenta reaproveitar o valor salvo no SQLite
+    final id = _pacienteId ?? 0;
+    if (id != 0) {
+      try {
+        final row = await _localDb.getRegistroDiario(id, dia);
+        if (row != null) {
+          final cached = _toDouble(row['kcal_dia']);
+          if (cached != null) return cached;
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('Falha ao ler kcal do SQLite: $e');
         }
       }
     }
-    return total.toDouble();
+
+    return 0;
   }
 
   Future<List<double>> _serieKcal(List<DateTime> datas) async {
@@ -511,7 +577,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            // -------------------- Filtro de período (mantido) --------------------
+            // -------------------- Filtro de período --------------------
             Container(
               padding: const EdgeInsets.all(12),
               decoration: _cardDeco(),
@@ -823,7 +889,6 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     );
   }
 
-  // === NOVO: intervalo "micro" para o gráfico de kcal ===
   double _yIntervalForKcal(double span) {
     if (span <= 120) return 20; // valores próximos (20 kcal)
     if (span <= 300) return 50; // faixa pequena
@@ -831,7 +896,6 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     return 200; // faixa maior
   }
 
-  // gráfico de barras de kcal por dia (ATUALIZADO: eixo Y mais "micro" e sem sufixo K)
   Widget _buildBarChartKcal(List<DateTime> datas, List<double> valores,
       ({double minY, double maxY}) range) {
     final span = (range.maxY - range.minY).abs();

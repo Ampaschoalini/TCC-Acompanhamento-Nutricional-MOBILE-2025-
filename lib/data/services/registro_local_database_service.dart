@@ -58,7 +58,7 @@ class RegistroLocalDatabaseService {
     return res;
   }
 
-  /// Remove um update específico (após sincronizar com o backend).
+  /// Remove um update específico.
   Future<void> deleteUpdate(int id) async {
     final db = await database;
     await db.delete(
@@ -68,7 +68,7 @@ class RegistroLocalDatabaseService {
     );
   }
 
-  /// Limpa todos os updates pendentes de um paciente (se você quiser em algum momento).
+  /// Limpa todos os updates pendentes de um paciente.
   Future<void> clearAllForPaciente(int pacienteId) async {
     final db = await database;
     await db.delete(

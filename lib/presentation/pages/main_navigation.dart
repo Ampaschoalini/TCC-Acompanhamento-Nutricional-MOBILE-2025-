@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-// Removido: import 'package:tcc_aplicativo_de_acompanhamento_nutricional/presentation/pages/alimentos_plano.dart';
 import 'plano_alimentar.dart';
 import 'relatorios.dart';
 import 'perfil.dart';
@@ -15,7 +14,6 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int paginaAtual = 0;
 
-  // Nova ordem: Plano, Registro, Relatórios, Perfil
   final List<Widget> paginas = const [
     PlanoAlimentarPage(),
     RegistroPage(),

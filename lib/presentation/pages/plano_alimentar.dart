@@ -55,9 +55,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     carregarDados();
   }
 
-  // -----------------------------
   // Persistência de checkboxes
-  // -----------------------------
   String _diaKey(DateTime d) => _keyFormatter.format(_dateOnly(d));
 
   Future<Map<String, bool>> _loadChecksParaDia(DateTime dia) async {
@@ -88,9 +86,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     return loaded;
   }
 
-  // -----------------------------
   // Persistência da OPÇÃO selecionada por refeição (ex.: opção 1/2/3)
-  // -----------------------------
   String _selIdxKey(DateTime d) => 'selidx_${_diaKey(d)}';
 
   Future<Map<String, int>> _loadSelecaoParaDia(DateTime dia) async {
@@ -121,7 +117,6 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
   }
 
   Future<void> _persistSelecionadoParaDiaAtual(String tipo, int idx) async {
-    // Carrega o mapa atual, atualiza o tipo e salva
     final atual = await _loadSelecaoParaDia(dataSelecionada);
     atual[tipo] = idx;
     await _saveSelecaoParaDia(dataSelecionada, atual);
@@ -139,7 +134,6 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     final nome = prefs.getString('nome') ?? '';
     final id = prefs.getInt('paciente_id') ?? 0;
 
-    // lê os logs de peso locais gravados pela tela Registro
     _pesoLogs = _readLogsMap(prefs.getString('logs_peso'));
 
     setState(() {
@@ -155,9 +149,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     setState(() {});
   }
 
-  // -----------------------------
   // Normalização e UI helpers
-  // -----------------------------
   DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
   String _normalizeTipo(String raw) {
@@ -241,9 +233,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     }
   }
 
-  // -----------------------------
   // Chaves de alimentos (para persistência por alimento/refeição)
-  // -----------------------------
   String _alimentoKey(String tipo, int? refeicaoId, dynamic alimento) {
     int? aid;
     try { aid = (alimento.id as int?); } catch (_) {}
@@ -259,9 +249,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     return 't:$t|r:$rid|a:$a|n:$nome';
   }
 
-  // -----------------------------
   // Cálculo de kcal consumidas (via prefs, não pelo modelo)
-  // -----------------------------
   Future<num> _caloriasConsumidasDiaViaPrefs(Iterable<Dieta> dietas) async {
     num total = 0;
     final checks = await _getChecksMap(dataSelecionada);
@@ -295,16 +283,13 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     return total;
   }
 
-  // -----------------------------
   // DRAWER (MENU LATERAL)
-  // -----------------------------
   Drawer _buildAppDrawer(BuildContext context) {
     return Drawer(
       child: SafeArea(
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            // Cabeçalho do Drawer com o branding e o usuário
             DrawerHeader(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -409,9 +394,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     );
   }
 
-  // ------------------------------------------
-  // BLOCO: gráfico com os 7 últimos pesos (compacto)
-  // ------------------------------------------
+  // BLOCO: gráfico com os 7 últimos pesos
 
   Map<String, double> _readLogsMap(String? raw) {
     if (raw == null || raw.isEmpty) return {};
@@ -501,7 +484,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
           ),
           const SizedBox(height: 6),
           SizedBox(
-            height: 120, // reduzido de 200 para 140
+            height: 120,
             child: LineChart(
               LineChartData(
                 minY: range.minY,
@@ -566,24 +549,21 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
 
   @override
   Widget build(BuildContext context) {
-    final dataSomenteDia = _dateOnly(dataSelecionada); // comparação inclusiva
+    final dataSomenteDia = _dateOnly(dataSelecionada);
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: kBg,
 
-      // APPBAR COM ÍCONE DE MENU NO CANTO SUPERIOR ESQUERDO
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         toolbarHeight: 0,
       ),
-      // DRAWER LATERAL
       drawer: _buildAppDrawer(context),
 
       body: SafeArea(
         child: Column(
           children: [
-            // Cabeçalho (mantido)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Container(
@@ -621,13 +601,11 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
               ),
             ),
 
-            // Gráfico dos 7 últimos pesos logo abaixo do cabeçalho (mais compacto)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: _peso7Widget(),
             ),
 
-            // Barra de data à esquerda + kcal consumidas à direita
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
@@ -637,8 +615,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                     onPressed: () async {
                       final nova = dataSelecionada.subtract(const Duration(days: 1));
                       dataSelecionada = nova;
-                      await _getChecksMap(nova); // pré-carrega checks
-                      // carrega seleção (opção 1/2/3) salva para esse dia
+                      await _getChecksMap(nova);
                       await _loadSelecaoDoDiaAtual();
                       setState(() {});
                     },
@@ -697,8 +674,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                     onPressed: () async {
                       final nova = dataSelecionada.add(const Duration(days: 1));
                       dataSelecionada = nova;
-                      await _getChecksMap(nova); // pré-carrega checks
-                      // carrega seleção (opção 1/2/3) salva para esse dia
+                      await _getChecksMap(nova);
                       await _loadSelecaoDoDiaAtual();
                       setState(() {});
                     },
@@ -734,7 +710,6 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                     return const _EstadoMensagem(icon: Icons.calendar_today, title: "Sem plano nesse dia", message: "Não há plano alimentar para a data selecionada.");
                   }
 
-                  // Objetivo da dieta (se houver)
                   String? objetivo;
                   try {
                     objetivo = dietasValidas
@@ -745,9 +720,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                     objetivo = null;
                   }
 
-                  // -------------------------
                   // AGRUPAMENTO + DEDUPLICAÇÃO
-                  // -------------------------
                   final Map<String, Map<String, Map<String, dynamic>>> gruposDedup = {};
 
                   String tipoFromRefeicao(Refeicao r) {
@@ -816,7 +789,6 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                     }
                   }
 
-                  // Converte para a estrutura antiga para o restante do fluxo
                   final Map<String, List<Map<String, dynamic>>> grupos = {};
                   gruposDedup.forEach((tipo, mapa) {
                     grupos[tipo] = mapa.values.toList();
@@ -874,7 +846,6 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                         final idxValido = idxSelecionado.clamp(0, items.length - 1);
                         _selecionadoPorTipo[tipo] = idxValido;
 
-                        // rótulo do dropdown
                         final dropBase = _dropdownTipoLabel(tipo);
 
                         return Container(
@@ -943,7 +914,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                                                   final ridAlim = (a.refeicaoId ?? a.refeicao_id) as int?;
                                                   if (ridAnt != null && ridAlim != null) return ridAlim == ridAnt;
                                                 } catch (_) {}
-                                                return true; // se não houver campo, mantém
+                                                return true;
                                               }).toList();
 
                                               final checks = await _getChecksMap(dataSelecionada);
@@ -962,7 +933,6 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                                 ),
                               ),
 
-                              // Conteúdo: apenas a refeição selecionada (ou única)
                               Builder(
                                 builder: (_) {
                                   final Map<String, dynamic> sel = items[idxValido];
@@ -973,16 +943,13 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                                   final String tituloRef = _normalizeTipo(tipo);
                                   final String subTituloHorario = _horarioCurto(horario);
 
-                                  // Usa a lista acumulada (deduplicada); se não houver, cai para r.alimentos
                                   final List alimentos = (sel['alimentosAcum'] as List?) ?? (r.alimentos as List?) ?? const [];
 
-                                  // --- FILTRO POR refeicao_id QUANDO DISPONÍVEL ---
                                   final List alimentosFiltrados = alimentos.where((a) {
                                     try {
                                       final ridAlim = (a.refeicaoId ?? a.refeicao_id) as int?;
                                       if (rid != null && ridAlim != null) return ridAlim == rid;
                                     } catch (_) {}
-                                    // Se não houver a coluna no model, exibe normalmente
                                     return true;
                                   }).toList();
 
@@ -1052,7 +1019,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                                                             mapa.remove(key);
                                                           }
                                                           await _saveChecksParaDia(dataSelecionada, mapa);
-                                                          setState(() {}); // reconta kcal do topo
+                                                          setState(() {});
                                                         },
                                                         activeColor: kPrimary,
                                                         checkboxShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),

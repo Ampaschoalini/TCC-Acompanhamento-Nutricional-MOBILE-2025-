@@ -8,7 +8,7 @@ class Dieta {
   final DateTime? dataTermino;
   final List<Refeicao> refeicoes;
 
-  /// Novo campo para identificar o tipo da refeição (Café da Manhã, Almoço, etc.)
+  /// Novo campo para identificar o tipo da refeição
   final String tipoRefeicao;
 
   Dieta({
@@ -40,7 +40,7 @@ class Dieta {
           [],
       tipoRefeicao: json['tipoRefeicao'] ??
           json['tipo_refeicao'] ??
-          "Outros", // pega do backend se vier
+          "Outros",
     );
   }
 

@@ -539,7 +539,6 @@ class _AlimentoTile extends StatelessWidget {
         ),
       ),
       onTap: () {
-        // futuro: detalhes do alimento
       },
     );
   }

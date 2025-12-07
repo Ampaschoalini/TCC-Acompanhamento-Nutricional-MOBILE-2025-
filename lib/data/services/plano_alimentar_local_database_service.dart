@@ -75,6 +75,29 @@ class PlanoAlimentarLocalDatabaseService {
     }
   }
 
+
+  Future<List<Dieta>> getQualquerPlano() async {
+    final db = await database;
+    final res = await db.query(
+      'plano_alimentar',
+      limit: 1,
+    );
+
+    if (res.isEmpty) return <Dieta>[];
+
+    final rawJson = res.first['json'];
+    if (rawJson == null) return <Dieta>[];
+
+    try {
+      final decoded = jsonDecode(rawJson as String) as List<dynamic>;
+      return decoded
+          .map((e) => Dieta.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return <Dieta>[];
+    }
+  }
+
   Future<void> clearPlano(int pacienteId) async {
     final db = await database;
     await db.delete(

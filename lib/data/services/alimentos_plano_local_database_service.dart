@@ -18,13 +18,12 @@ class AlimentosPlanoLocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 2, // 🔺 se você já estava em 1, isso força o onUpgrade
+      version: 2,
       onCreate: (db, version) async {
         await _createTables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          // É só cache, então podemos recriar a tabela sem dó
           await db.execute('DROP TABLE IF EXISTS alimentos_plano');
           await _createTables(db);
         }
@@ -52,7 +51,6 @@ class AlimentosPlanoLocalDatabaseService {
   Future<void> salvarAlimentosPlano(List<Alimento> alimentos) async {
     final db = await database;
     await db.transaction((txn) async {
-      // como é cache, apagamos tudo e recarregamos
       await txn.delete('alimentos_plano');
 
       for (final a in alimentos) {
@@ -80,7 +78,6 @@ class AlimentosPlanoLocalDatabaseService {
     final db = await database;
     final result = await db.query('alimentos_plano');
 
-    // Usa o fromMap do seu modelo, pra ficar padronizado com o resto do app
     return result.map((row) => Alimento.fromMap(row)).toList();
   }
 

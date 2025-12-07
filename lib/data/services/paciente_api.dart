@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'local_database_service.dart';
 
 class PacienteApi {
-  // Emulador Android = 10.0.2.2 | Dispositivo físico = IP da sua máquina
+  // Emulador Android = 10.0.2.2 | Dispositivo físico = IP da máquina
   final String baseUrl = 'http://10.0.2.2:8800';
 
   Future<String?> _token() async {
@@ -32,7 +32,6 @@ class PacienteApi {
 
     final url = Uri.parse('$baseUrl/patient/getPatientById/$id');
 
-    // Lê o que tiver no SharedPreferences (pode ser usado como fallback básico)
     Future<Map<String, dynamic>?> _loadFromPrefs() async {
       final prefs = await SharedPreferences.getInstance();
       final nome = prefs.getString('nome') ?? '';
@@ -60,7 +59,6 @@ class PacienteApi {
       };
     }
 
-    // Lê o que tiver no SQLite (tabela user) para uso offline mais completo
     Future<Map<String, dynamic>?> _loadFromSQLite() async {
       try {
         if (id == null) return null;
@@ -114,14 +112,12 @@ class PacienteApi {
             data.cast<String, dynamic>(),
           );
         } else {
-          // Formato estranho -> tenta dados locais
           final localSql = await _loadFromSQLite();
           if (localSql != null) return localSql;
           final localPrefs = await _loadFromPrefs();
           return localPrefs ?? <String, dynamic>{};
         }
 
-        // 🔄 Sincroniza campos básicos com SharedPreferences (para uso offline)
         try {
           final prefs = await SharedPreferences.getInstance();
           prefs.setString('nome', patient['nome']?.toString() ?? '');
@@ -138,10 +134,8 @@ class PacienteApi {
           );
           prefs.setString('tipo', patient['tipo']?.toString() ?? '');
         } catch (_) {
-          // erro ao sincronizar prefs não deve quebrar nada
         }
 
-        // 🔄 Sincroniza snapshot completo no SQLite para uso offline
         try {
           if (id != null) {
             final localDb = LocalDatabaseService();
@@ -176,30 +170,25 @@ class PacienteApi {
             });
           }
         } catch (_) {
-          // falha de sync local não deve impedir o fluxo normal
         }
 
         return patient;
       } else {
-        // HTTP 4xx/5xx -> tenta dados locais
         final localSql = await _loadFromSQLite();
         if (localSql != null) return localSql;
 
         final localPrefs = await _loadFromPrefs();
         if (localPrefs != null) return localPrefs;
 
-        // Sem dados locais -> devolve mapa vazio
         return <String, dynamic>{};
       }
     } catch (_) {
-      // Aqui pega erros de conexão (Connection failed, timeout etc.)
       final localSql = await _loadFromSQLite();
       if (localSql != null) return localSql;
 
       final localPrefs = await _loadFromPrefs();
       if (localPrefs != null) return localPrefs;
 
-      // Sem dados locais -> devolve mapa vazio em vez de Exception
       return <String, dynamic>{};
     }
   }
@@ -229,7 +218,6 @@ class PacienteApi {
       );
     }
 
-    // 🔄 Atualiza também o SharedPreferences com o que foi alterado
     try {
       final prefs = await SharedPreferences.getInstance();
 
@@ -252,10 +240,8 @@ class PacienteApi {
         prefs.setString('tipo', payload['tipo'].toString());
       }
     } catch (_) {
-      // Falha de sync local não impede o sucesso da atualização remota
     }
 
-    // 🔄 Atualiza snapshot local no SQLite (se existir)
     try {
       final localDb = LocalDatabaseService();
       await localDb.updateUserPartial(
@@ -285,7 +271,6 @@ class PacienteApi {
         payload['exames_de_sangue_relevantes']?.toString(),
       );
     } catch (_) {
-      // Falha de sync local não deve quebrar fluxo
     }
   }
 
@@ -322,7 +307,7 @@ class PacienteApi {
     }
   }
 
-  // --- Utilitário para extrair mensagem dos erros da API ---
+  // Utilitário para extrair mensagem dos erros da API
   String _extractServerMessage(http.Response resp) {
     final status = resp.statusCode;
     final ct = resp.headers['content-type'] ?? '';

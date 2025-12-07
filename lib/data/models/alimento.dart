@@ -1,9 +1,6 @@
-// alimento.dart (corrigido)
-// Aceita tanto grupo_alimentar (do backend) quanto grupoAlimentar (caso venha camelCase).
-
 class Alimento {
   final int id;
-  final int? refeicaoId;       // vínculo com refeicao_id (opcional, pode ser null no SQLite)
+  final int? refeicaoId;
   final String nome;
   final String grupoAlimentar;
   final String quantidade;
@@ -29,7 +26,6 @@ class Alimento {
       id: json['alimento_id'] ?? json['id'] ?? 0,
       refeicaoId: json['refeicao_id'],
       nome: json['nome'] ?? '',
-      // agora aceita grupo_alimentar e grupoAlimentar
       grupoAlimentar: json['grupo_alimentar'] ?? json['grupoAlimentar'] ?? '',
       quantidade: json['quantidade'] ?? json['alimento_quantidade'] ?? '',
       calorias: json['calorias'] ?? 0,
@@ -44,7 +40,6 @@ class Alimento {
       id: map['id'] ?? 0,
       refeicaoId: map['refeicao_id'], // pode não existir no SQLite → fica null
       nome: map['nome'] ?? '',
-      // idem para map
       grupoAlimentar: map['grupo_alimentar'] ?? map['grupoAlimentar'] ?? '',
       quantidade: map['quantidade'] ?? map['alimento_quantidade'] ?? '',
       calorias: map['calorias'] ?? 0,
@@ -59,7 +54,6 @@ class Alimento {
       'alimento_id': id,
       'refeicao_id': refeicaoId,
       'nome': nome,
-      // ao salvar sempre enviaremos como grupo_alimentar (snake_case)
       'grupo_alimentar': grupoAlimentar,
       'quantidade': quantidade,
       'calorias': calorias,

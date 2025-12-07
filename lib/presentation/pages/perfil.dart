@@ -300,7 +300,6 @@ class _PerfilPageState extends State<PerfilPage> {
                 radius: 40,
                 backgroundImage: const AssetImage('assets/images/Paciente.jpg'),
                 backgroundColor: kPrimary.withOpacity(0.08),
-                // Caso a imagem não esteja registrada no pubspec, o CircleAvatar exibe um fundo.
               ),
             ),
             const SizedBox(width: 16),
