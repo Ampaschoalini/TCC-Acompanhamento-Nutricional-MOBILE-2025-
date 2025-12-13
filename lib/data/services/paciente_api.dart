@@ -30,7 +30,8 @@ class PacienteApi {
       throw Exception('paciente_id não encontrado no SharedPreferences');
     }
 
-    final url = Uri.parse('$baseUrl/patient/getPatientById/$id');
+    final url = Uri.parse('$baseUrl/'
+        'patient/getPatientById/$id');
 
     Future<Map<String, dynamic>?> _loadFromPrefs() async {
       final prefs = await SharedPreferences.getInstance();
@@ -118,6 +119,7 @@ class PacienteApi {
           return localPrefs ?? <String, dynamic>{};
         }
 
+        // Atualiza SharedPreferences com dados mais recentes do backend
         try {
           final prefs = await SharedPreferences.getInstance();
           prefs.setString('nome', patient['nome']?.toString() ?? '');
@@ -133,44 +135,44 @@ class PacienteApi {
                 '',
           );
           prefs.setString('tipo', patient['tipo']?.toString() ?? '');
-        } catch (_) {
-        }
+        } catch (_) {}
 
+        // Atualiza apenas os campos de perfil no SQLite,
+        // sem sobrescrever a senha salva pelo login.
         try {
           if (id != null) {
             final localDb = LocalDatabaseService();
-            await localDb.saveUser({
-              'id': id,
-              'nome': patient['nome']?.toString(),
-              'email': patient['email']?.toString(),
-              'telefone':
+            await localDb.updateUserPartial(
+              id: id!,
+              nome: patient['nome']?.toString(),
+              email: patient['email']?.toString(),
+              telefone:
               (patient['telefone'] ?? patient['phone'])?.toString(),
-              'dataNascimento':
+              dataNascimento:
               (patient['dataNascimento'] ?? patient['data_nascimento'])
                   ?.toString(),
-              'tipo': patient['tipo']?.toString(),
-              'genero': patient['genero']?.toString(),
-              'objetivo': patient['objetivo']?.toString(),
-              'frequencia_exercicio_semanal':
+              tipo: patient['tipo']?.toString(),
+              genero: patient['genero']?.toString(),
+              objetivo: patient['objetivo']?.toString(),
+              frequenciaExercicioSemanal:
               patient['frequencia_exercicio_semanal']?.toString(),
-              'restricao_alimentar':
+              restricaoAlimentar:
               patient['restricao_alimentar']?.toString(),
-              'alergia': patient['alergia']?.toString(),
-              'observacao': patient['observacao']?.toString(),
-              'habitos_alimentares':
+              alergia: patient['alergia']?.toString(),
+              observacao: patient['observacao']?.toString(),
+              habitosAlimentares:
               patient['habitos_alimentares']?.toString(),
-              'historico_familiar_doencas':
+              historicoFamiliarDoencas:
               patient['historico_familiar_doencas']?.toString(),
-              'doencas_cronicas':
+              doencasCronicas:
               patient['doencas_cronicas']?.toString(),
-              'medicamentos_em_uso':
+              medicamentosEmUso:
               patient['medicamentos_em_uso']?.toString(),
-              'exames_de_sangue_relevantes':
+              examesDeSangueRelevantes:
               patient['exames_de_sangue_relevantes']?.toString(),
-            });
+            );
           }
-        } catch (_) {
-        }
+        } catch (_) {}
 
         return patient;
       } else {
@@ -239,8 +241,7 @@ class PacienteApi {
       if (payload['tipo'] != null) {
         prefs.setString('tipo', payload['tipo'].toString());
       }
-    } catch (_) {
-    }
+    } catch (_) {}
 
     try {
       final localDb = LocalDatabaseService();
@@ -270,8 +271,7 @@ class PacienteApi {
         examesDeSangueRelevantes:
         payload['exames_de_sangue_relevantes']?.toString(),
       );
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   /// Trocar senha usando o mesmo endpoint de update do paciente.

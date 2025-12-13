@@ -8,6 +8,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../data/models/dieta.dart';
 import '../../data/models/refeicao.dart';
 import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/plano_alimentar_service.dart';
+import 'package:tcc_aplicativo_de_acompanhamento_nutricional/data/services/local_database_service.dart';
 
 // IMPORTS PARA NAVEGAÇÃO VIA MENU LATERAL
 import 'relatorios.dart';
@@ -38,6 +39,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
 
   DateTime dataSelecionada = (DateTime.now().toLocal());
   final PlanoAlimentarService _service = PlanoAlimentarService();
+  final LocalDatabaseService _localDb = LocalDatabaseService();
   Future<List<Dieta>>? _dietasFuture;
 
   /// Índice selecionado por tipo (ex.: "Café da Manhã") quando houver >1 registro
@@ -58,9 +60,22 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
   // Persistência de checkboxes
   String _diaKey(DateTime d) => _keyFormatter.format(_dateOnly(d));
 
+  String _checksKey(DateTime d) {
+    final baseDia = _diaKey(d);
+    if (pacienteId == 0) return 'checks_$baseDia';
+    return 'checks_${pacienteId}_$baseDia';
+  }
+
+  String _selIdxKey(DateTime d) {
+    final baseDia = _diaKey(d);
+    if (pacienteId == 0) return 'selidx_$baseDia';
+    return 'selidx_${pacienteId}_$baseDia';
+  }
+
+
   Future<Map<String, bool>> _loadChecksParaDia(DateTime dia) async {
     final prefs = await SharedPreferences.getInstance();
-    final key = 'checks_${_diaKey(dia)}';
+    final key = _checksKey(dia); // ✅ agora por paciente
     final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) return {};
     try {
@@ -73,13 +88,13 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
 
   Future<void> _saveChecksParaDia(DateTime dia, Map<String, bool> mapa) async {
     final prefs = await SharedPreferences.getInstance();
-    final key = 'checks_${_diaKey(dia)}';
+    final key = _checksKey(dia); // ✅ agora por paciente
     await prefs.setString(key, json.encode(mapa));
   }
 
   /// Retorna o mapa de checks em memória para o dia (carrega do disco se necessário)
   Future<Map<String, bool>> _getChecksMap(DateTime dia) async {
-    final dk = _diaKey(dia);
+    final dk = _checksKey(dia);
     if (_checksCache.containsKey(dk)) return _checksCache[dk]!;
     final loaded = await _loadChecksParaDia(dia);
     _checksCache[dk] = loaded;
@@ -87,7 +102,6 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
   }
 
   // Persistência da OPÇÃO selecionada por refeição (ex.: opção 1/2/3)
-  String _selIdxKey(DateTime d) => 'selidx_${_diaKey(d)}';
 
   Future<Map<String, int>> _loadSelecaoParaDia(DateTime dia) async {
     final prefs = await SharedPreferences.getInstance();
@@ -134,7 +148,7 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     final nome = prefs.getString('nome') ?? '';
     final id = prefs.getInt('paciente_id') ?? 0;
 
-    _pesoLogs = _readLogsMap(prefs.getString('logs_peso'));
+    _pesoLogs = _readLogsMap(prefs.getString('logs_peso_$id'));
 
     setState(() {
       nomeUsuario = nome;
@@ -282,6 +296,40 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
     }
     return total;
   }
+
+  Future<void> _atualizarKcalConsumidasNoSQLite() async {
+    if (pacienteId == 0) return;
+    final future = _dietasFuture;
+    if (future == null) return;
+
+    try {
+      final dietas = await future;
+      if (dietas.isEmpty) return;
+
+      final dataSomenteDia = _dateOnly(dataSelecionada);
+
+      final dietasValidas = dietas.where((dieta) {
+        final inicio = dieta.dataInicio;
+        final fim = dieta.dataTermino;
+        if (inicio == null || fim == null) return false;
+        final i = _dateOnly(inicio);
+        final f = _dateOnly(fim);
+        return !dataSomenteDia.isBefore(i) && !dataSomenteDia.isAfter(f);
+      });
+
+      final numKcal = await _caloriasConsumidasDiaViaPrefs(dietasValidas);
+      final kcalDia = numKcal.toDouble();
+
+      await _localDb.upsertRegistroDiario(
+        pacienteId: pacienteId,
+        data: dataSomenteDia,
+        kcalDia: kcalDia,
+      );
+    } catch (_) {
+      // Se houver erro ao salvar, apenas ignore para não quebrar a tela
+    }
+  }
+
 
   // DRAWER (MENU LATERAL)
   Drawer _buildAppDrawer(BuildContext context) {
@@ -1019,6 +1067,8 @@ class _PlanoAlimentarPageState extends State<PlanoAlimentarPage> {
                                                             mapa.remove(key);
                                                           }
                                                           await _saveChecksParaDia(dataSelecionada, mapa);
+                                                          await _atualizarKcalConsumidasNoSQLite();
+
                                                           setState(() {});
                                                         },
                                                         activeColor: kPrimary,

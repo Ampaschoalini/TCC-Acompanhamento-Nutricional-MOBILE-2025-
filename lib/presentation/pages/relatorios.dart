@@ -107,11 +107,13 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
     _pacienteId = prefs.getInt('paciente_id') ?? 0;
     _token = prefs.getString('token');
 
-    _pesoLogs = _readLogsMap(prefs.getString('logs_peso'));
-    _cinturaLogs = _readLogsMap(prefs.getString('logs_cintura'));
-    _quadrilLogs = _readLogsMap(prefs.getString('logs_quadril'));
-    _bracoLogs = _readLogsMap(prefs.getString('logs_braco'));
-    _pernaLogs = _readLogsMap(prefs.getString('logs_perna'));
+    final id = _pacienteId ?? 0;
+
+    _pesoLogs = _readLogsMap(prefs.getString('logs_peso_$id'));
+    _cinturaLogs = _readLogsMap(prefs.getString('logs_cintura_$id'));
+    _quadrilLogs = _readLogsMap(prefs.getString('logs_quadril_$id'));
+    _bracoLogs = _readLogsMap(prefs.getString('logs_braco_$id'));
+    _pernaLogs = _readLogsMap(prefs.getString('logs_perna_$id'));
 
     await _carregarLogsDoSQLite();
 
@@ -307,6 +309,13 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   final Map<String, Map<String, bool>> _checksCache = {};
   String _diaKey(DateTime d) => _keyFormatter.format(_dateOnly(d));
 
+  String _checksKey(DateTime d) {
+    final baseDia = _diaKey(d);
+    final id = _pacienteId ?? 0;
+    if (id == 0) return 'checks_$baseDia';
+    return 'checks_${id}_$baseDia';
+  }
+
   List<FlSpot> _spotsFromLog(Map<String, double> log, List<DateTime> datas) {
     final List<FlSpot> spots = [];
     for (int i = 0; i < datas.length; i++) {
@@ -337,7 +346,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
 
   Future<Map<String, bool>> _loadChecksParaDia(DateTime dia) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('checks_${_diaKey(dia)}');
+    final raw = prefs.getString(_checksKey(dia));
     if (raw == null || raw.isEmpty) return {};
     try {
       final Map<String, dynamic> decoded = json.decode(raw);
@@ -348,7 +357,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
   }
 
   Future<Map<String, bool>> _getChecksMap(DateTime dia) async {
-    final dk = _diaKey(dia);
+    final dk = _checksKey(dia);
     if (_checksCache.containsKey(dk)) return _checksCache[dk]!;
     final loaded = await _loadChecksParaDia(dia);
     _checksCache[dk] = loaded;

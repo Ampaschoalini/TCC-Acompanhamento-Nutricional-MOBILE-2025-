@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../data/services/paciente_api.dart';
+import '../../data/services/local_database_service.dart';
 
 class PerfilPage extends StatefulWidget {
   const PerfilPage({super.key});
@@ -16,6 +19,9 @@ class _PerfilPageState extends State<PerfilPage> {
   static const Color kPrimary = Color(0xFFEC8800);
   static const Color kText = Color(0xFF444444);
   static const Color kCard = Colors.white;
+
+  // Services
+  final LocalDatabaseService _localDb = LocalDatabaseService();
 
   // Controllers
   final _nomeController = TextEditingController();
@@ -43,49 +49,113 @@ class _PerfilPageState extends State<PerfilPage> {
 
   Future<void> _carregarDadosUsuario() async {
     try {
+      // 1) Tenta carregar ONLINE
       final api = PacienteApi();
       final json = await api.getById();
 
-      setState(() {
-        _nomeController.text = (json['nome'] ?? '').toString();
-        _emailController.text = (json['email'] ?? '').toString();
-        _telefoneController.text = (json['telefone'] ?? '').toString();
+      _preencherCampos(json);
 
-        final dn = (json['dataNascimento'] ?? '').toString();
-        final parsed = _parseAnyDate(dn);
-        if (parsed != null) {
-          _dataNascimentoController.text = _formatDate(parsed);
-        }
+      // 2) Sincroniza cache detalhado no SQLite
+      final prefs = await SharedPreferences.getInstance();
+      final pacienteId =
+          prefs.getInt('paciente_id') ?? prefs.getInt('user_id');
 
-        _genero = (json['genero'] ?? '').toString();
-        _objetivo = (json['objetivo'] ?? '') as String?;
+      if (pacienteId != null && json['id'] != null) {
+        final perfilMap = <String, dynamic>{
+          'id': json['id'],
+          'nome': json['nome'],
+          'email': json['email'],
+          'telefone': json['telefone'],
+          'dataNascimento': json['dataNascimento'],
+          'genero': json['genero'],
+          'objetivo': json['objetivo'],
+          'frequencia_exercicio_semanal':
+          json['frequencia_exercicio_semanal']?.toString(),
+          'restricao_alimentar': json['restricao_alimentar'],
+          'alergia': json['alergia'],
+          'observacao': json['observacao'],
+          'habitos_alimentares': json['habitos_alimentares'],
+          'historico_familiar_doencas': json['historico_familiar_doencas'],
+          'doencas_cronicas': json['doencas_cronicas'],
+          'medicamentos_em_uso': json['medicamentos_em_uso'],
+          'exames_de_sangue_relevantes': json['exames_de_sangue_relevantes'],
+        };
 
-        final freqStr = (json['frequencia_exercicio_semanal'] ?? '').toString();
-        final freqNum = int.tryParse(
-          freqStr.split(RegExp(r'\D+')).firstWhere(
-                (s) => s.isNotEmpty,
-            orElse: () => '0',
-          ),
-        );
-        _freqExercicio = (freqNum ?? 0).clamp(0, 7);
-
-        _restricaoAlimentarController.text = (json['restricao_alimentar'] ?? '').toString();
-        _alergiasController.text = (json['alergia'] ?? '').toString();
-        _observacaoController.text = (json['observacao'] ?? '').toString();
-        _habitosAlimentaresController.text = (json['habitos_alimentares'] ?? '').toString();
-        _historicoFamiliarController.text = (json['historico_familiar_doencas'] ?? '').toString();
-        _doencasCronicasController.text = (json['doencas_cronicas'] ?? '').toString();
-        _medicamentosController.text = (json['medicamentos_em_uso'] ?? '').toString();
-        _examesSangueController.text = (json['exames_de_sangue_relevantes'] ?? '').toString();
-      });
+        await _localDb.savePerfilPaciente(perfilMap);
+      }
     } catch (e) {
-      debugPrint('Falha ao carregar perfil: $e');
+      debugPrint('Falha ao carregar perfil online: $e');
+
+      // 3) Fallback OFFLINE a partir do SQLite
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final pacienteId =
+            prefs.getInt('paciente_id') ?? prefs.getInt('user_id');
+
+        if (pacienteId != null) {
+          final cachedPerfil =
+          await _localDb.getPerfilPaciente(pacienteId);
+
+          if (cachedPerfil != null) {
+            _preencherCampos(cachedPerfil);
+            return;
+          }
+        }
+      } catch (e2) {
+        debugPrint('Falha ao carregar perfil offline: $e2');
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível carregar seu perfil.')),
+          const SnackBar(
+            content: Text('Não foi possível carregar seu perfil.'),
+          ),
         );
       }
     }
+  }
+
+  void _preencherCampos(Map<String, dynamic> json) {
+    setState(() {
+      _nomeController.text = (json['nome'] ?? '').toString();
+      _emailController.text = (json['email'] ?? '').toString();
+      _telefoneController.text = (json['telefone'] ?? '').toString();
+
+      final dn = (json['dataNascimento'] ?? '').toString();
+      final parsed = _parseAnyDate(dn);
+      if (parsed != null) {
+        _dataNascimentoController.text = _formatDate(parsed);
+      }
+
+      _genero = (json['genero'] ?? '').toString();
+      _objetivo = (json['objetivo'] ?? '') as String?;
+
+      final freqStr =
+      (json['frequencia_exercicio_semanal'] ?? '').toString();
+      final freqNum = int.tryParse(
+        freqStr.split(RegExp(r'\D+')).firstWhere(
+              (s) => s.isNotEmpty,
+          orElse: () => '0',
+        ),
+      );
+      _freqExercicio = (freqNum ?? 0).clamp(0, 7);
+
+      _restricaoAlimentarController.text =
+          (json['restricao_alimentar'] ?? '').toString();
+      _alergiasController.text = (json['alergia'] ?? '').toString();
+      _observacaoController.text =
+          (json['observacao'] ?? '').toString();
+      _habitosAlimentaresController.text =
+          (json['habitos_alimentares'] ?? '').toString();
+      _historicoFamiliarController.text =
+          (json['historico_familiar_doencas'] ?? '').toString();
+      _doencasCronicasController.text =
+          (json['doencas_cronicas'] ?? '').toString();
+      _medicamentosController.text =
+          (json['medicamentos_em_uso'] ?? '').toString();
+      _examesSangueController.text =
+          (json['exames_de_sangue_relevantes'] ?? '').toString();
+    });
   }
 
   @override
@@ -123,18 +193,21 @@ class _PerfilPageState extends State<PerfilPage> {
           labelStyle: const TextStyle(color: kText),
           filled: true,
           fillColor: kCard,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          contentPadding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: kPrimary, width: 1.5),
+            borderSide:
+            const BorderSide(color: kPrimary, width: 1.5),
           ),
           errorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Colors.redAccent),
+            borderSide:
+            const BorderSide(color: Colors.redAccent),
           ),
         ),
       ),
@@ -144,10 +217,10 @@ class _PerfilPageState extends State<PerfilPage> {
           centerTitle: true,
           backgroundColor: Colors.transparent,
           flexibleSpace: Container(
-            // === Cabeçalho atualizado para combinar com a tela de "Registro" ===
+            // Cabeçalho com gradiente
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFFEC8800), Color(0xFFFFB36B)], // kPrimary, kPrimarySoft
+                colors: [Color(0xFFEC8800), Color(0xFFFFB36B)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -164,7 +237,8 @@ class _PerfilPageState extends State<PerfilPage> {
             IconButton(
               tooltip: 'Salvar',
               onPressed: _salvarAlteracoes,
-              icon: const Icon(Icons.save_rounded, color: Colors.white),
+              icon:
+              const Icon(Icons.save_rounded, color: Colors.white),
             ),
             const SizedBox(width: 6),
           ],
@@ -177,9 +251,10 @@ class _PerfilPageState extends State<PerfilPage> {
                 child: Form(
                   key: _formKey,
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                    padding:
+                    const EdgeInsets.fromLTRB(20, 20, 20, 28),
                     children: [
-                      _headerCard(), // <-- Agora com a foto do perfil
+                      _headerCard(),
                       const SizedBox(height: 16),
 
                       // 1) Informações Pessoais
@@ -187,11 +262,31 @@ class _PerfilPageState extends State<PerfilPage> {
                         title: 'Informações Pessoais',
                         initiallyExpanded: false,
                         children: [
-                          _text('Nome', _nomeController, validator: _required, prefixIcon: Icons.person_outline),
-                          _text('Email', _emailController, keyboardType: TextInputType.emailAddress, validator: _emailValidator, prefixIcon: Icons.email_outlined),
-                          _text('Telefone', _telefoneController, keyboardType: TextInputType.phone, prefixIcon: Icons.phone_outlined),
-                          _date('Data de nascimento', _dataNascimentoController),
-                          _readonlyField('Gênero', _generoLabel()),
+                          _text(
+                            'Nome',
+                            _nomeController,
+                            validator: _required,
+                            prefixIcon: Icons.person_outline,
+                          ),
+                          _text(
+                            'Email',
+                            _emailController,
+                            keyboardType:
+                            TextInputType.emailAddress,
+                            validator: _emailValidator,
+                            prefixIcon: Icons.email_outlined,
+                          ),
+                          _text(
+                            'Telefone',
+                            _telefoneController,
+                            keyboardType: TextInputType.phone,
+                            prefixIcon: Icons.phone_outlined,
+                          ),
+                          _date(
+                              'Data de nascimento',
+                              _dataNascimentoController),
+                          _readonlyField(
+                              'Gênero', _generoLabel()),
                         ],
                       ),
 
@@ -199,24 +294,43 @@ class _PerfilPageState extends State<PerfilPage> {
                       _SectionCard(
                         title: 'Informações Específicas',
                         children: [
-                          _multiline('Objetivo', _observacaoController),
+                          _multiline(
+                              'Objetivo', _observacaoController),
                           Row(
-                            children: [
-                              const SizedBox(width: 12),
+                            children: const [
+                              SizedBox(width: 12),
                             ],
                           ),
                           _sliderDias(
-                            label: 'Frequência de exercício semanal',
+                            label:
+                            'Frequência de exercício semanal',
                             value: _freqExercicio,
-                            onChanged: (v) => setState(() => _freqExercicio = v),
+                            onChanged: (v) => setState(
+                                    () => _freqExercicio = v),
                           ),
-                          _text('Restrição alimentar', _restricaoAlimentarController, prefixIcon: Icons.no_food_outlined),
-                          _text('Alergias', _alergiasController, prefixIcon: Icons.health_and_safety_outlined),
-                          _multiline('Hábitos alimentares', _habitosAlimentaresController),
-                          _multiline('Histórico familiar de doenças', _historicoFamiliarController),
-                          _multiline('Doenças crônicas', _doencasCronicasController),
-                          _multiline('Medicamentos em uso', _medicamentosController),
-                          _multiline('Exames de sangue relevantes', _examesSangueController),
+                          _text(
+                            'Restrição alimentar',
+                            _restricaoAlimentarController,
+                            prefixIcon: Icons.no_food_outlined,
+                          ),
+                          _text(
+                            'Alergias',
+                            _alergiasController,
+                            prefixIcon:
+                            Icons.health_and_safety_outlined,
+                          ),
+                          _multiline('Hábitos alimentares',
+                              _habitosAlimentaresController),
+                          _multiline(
+                              'Histórico familiar de doenças',
+                              _historicoFamiliarController),
+                          _multiline('Doenças crônicas',
+                              _doencasCronicasController),
+                          _multiline('Medicamentos em uso',
+                              _medicamentosController),
+                          _multiline(
+                              'Exames de sangue relevantes',
+                              _examesSangueController),
                         ],
                       ),
 
@@ -230,10 +344,14 @@ class _PerfilPageState extends State<PerfilPage> {
                               style: FilledButton.styleFrom(
                                 backgroundColor: kPrimary,
                                 foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                  BorderRadius.circular(10),
+                                ),
                               ),
                               onPressed: _alterarSenha,
-                              icon: const Icon(Icons.lock_reset_rounded),
+                              icon: const Icon(
+                                  Icons.lock_reset_rounded),
                               label: const Text('Alterar Senha'),
                             ),
                           ),
@@ -243,11 +361,16 @@ class _PerfilPageState extends State<PerfilPage> {
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.redAccent,
-                                side: const BorderSide(color: Colors.redAccent),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                side: const BorderSide(
+                                    color: Colors.redAccent),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                  BorderRadius.circular(10),
+                                ),
                               ),
                               onPressed: _logout,
-                              icon: const Icon(Icons.exit_to_app_rounded),
+                              icon: const Icon(
+                                  Icons.exit_to_app_rounded),
                               label: const Text('Sair'),
                             ),
                           ),
@@ -266,11 +389,11 @@ class _PerfilPageState extends State<PerfilPage> {
 
   // --- Widgets auxiliares ---
   Widget _headerCard() {
-    // Cabeçalho com foto do perfil (assets/images/Paciente.jpg) + dados resumidos
     return Card(
       elevation: 1.5,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16)),
       child: Container(
         decoration: BoxDecoration(
           gradient: const LinearGradient(
@@ -285,7 +408,6 @@ class _PerfilPageState extends State<PerfilPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Avatar com anel decorativo
             Container(
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
@@ -298,39 +420,57 @@ class _PerfilPageState extends State<PerfilPage> {
               ),
               child: CircleAvatar(
                 radius: 40,
-                backgroundImage: const AssetImage('assets/images/Paciente.jpg'),
+                backgroundImage: const AssetImage(
+                    'assets/images/Paciente.jpg'),
                 backgroundColor: kPrimary.withOpacity(0.08),
               ),
             ),
             const SizedBox(width: 16),
-            // Informações de título + subtítulo
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'Dados do Paciente',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kText),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: kText,
+                    ),
                   ),
                   const SizedBox(height: 6),
-                  // Nome e e-mail do controller (somente visual, não editável aqui)
                   Text(
-                    _nomeController.text.isNotEmpty ? _nomeController.text : '—',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF2C2C2C)),
+                    _nomeController.text.isNotEmpty
+                        ? _nomeController.text
+                        : '—',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2C2C2C),
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _emailController.text.isNotEmpty ? _emailController.text : '—',
-                    style: const TextStyle(fontSize: 13, color: Color(0xFF6D6D6D)),
+                    _emailController.text.isNotEmpty
+                        ? _emailController.text
+                        : '—',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF6D6D6D),
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),
                   const Text(
                     'Mantenha seu cadastro atualizado para um melhor acompanhamento clínico.',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF6D6D6D)),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF6D6D6D),
+                    ),
                   ),
                 ],
               ),
@@ -341,7 +481,13 @@ class _PerfilPageState extends State<PerfilPage> {
     );
   }
 
-  Widget _text(String label, TextEditingController controller, {TextInputType keyboardType = TextInputType.text, String? Function(String?)? validator, IconData? prefixIcon}) {
+  Widget _text(
+      String label,
+      TextEditingController controller, {
+        TextInputType keyboardType = TextInputType.text,
+        String? Function(String?)? validator,
+        IconData? prefixIcon,
+      }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -351,7 +497,10 @@ class _PerfilPageState extends State<PerfilPage> {
         style: const TextStyle(color: kText),
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: prefixIcon != null ? Icon(prefixIcon, color: const Color(0xFF9E9E9E)) : null,
+          prefixIcon: prefixIcon != null
+              ? Icon(prefixIcon,
+              color: const Color(0xFF9E9E9E))
+              : null,
         ),
       ),
     );
@@ -371,7 +520,8 @@ class _PerfilPageState extends State<PerfilPage> {
     );
   }
 
-  Widget _multiline(String label, TextEditingController controller) {
+  Widget _multiline(
+      String label, TextEditingController controller) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -383,7 +533,8 @@ class _PerfilPageState extends State<PerfilPage> {
     );
   }
 
-  Widget _date(String label, TextEditingController controller) {
+  Widget _date(
+      String label, TextEditingController controller) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -396,24 +547,36 @@ class _PerfilPageState extends State<PerfilPage> {
         ),
         onTap: () async {
           final now = DateTime.now();
-          final initialDate = _parseDate(controller.text) ?? DateTime(now.year - 18, now.month, now.day);
+          final initialDate = _parseDate(controller.text) ??
+              DateTime(now.year - 18, now.month, now.day);
           final picked = await showDatePicker(
             context: context,
             firstDate: DateTime(1900),
             lastDate: now,
             initialDate: initialDate,
           );
-          if (picked != null) controller.text = _formatDate(picked);
+          if (picked != null)
+            controller.text = _formatDate(picked);
         },
       ),
     );
   }
 
-  Widget _sliderDias({required String label, required int value, required ValueChanged<int> onChanged}) {
+  Widget _sliderDias({
+    required String label,
+    required int value,
+    required ValueChanged<int> onChanged,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('$label: ${value}x/semana', style: const TextStyle(fontWeight: FontWeight.w600, color: kText)),
+        Text(
+          '$label: ${value}x/semana',
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            color: kText,
+          ),
+        ),
         Slider(
           value: value.toDouble(),
           min: 0,
@@ -429,10 +592,17 @@ class _PerfilPageState extends State<PerfilPage> {
   }
 
   // --- Validações ---
-  String? _required(String? v) => (v == null || v.trim().isEmpty) ? 'Campo obrigatório' : null;
+  String? _required(String? v) =>
+      (v == null || v.trim().isEmpty)
+          ? 'Campo obrigatório'
+          : null;
+
   String? _emailValidator(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Campo obrigatório';
-    final ok = RegExp(r'^[^@\\s]+@[^@\\s]+\\.[^@\\s]+').hasMatch(v.trim());
+    if (v == null || v.trim().isEmpty) {
+      return 'Campo obrigatório';
+    }
+    final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+')
+        .hasMatch(v.trim());
     return ok ? null : 'Email inválido';
   }
 
@@ -443,7 +613,8 @@ class _PerfilPageState extends State<PerfilPage> {
     String? dataISO;
     final dt = _parseDate(_dataNascimentoController.text);
     if (dt != null) {
-      dataISO = "${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}";
+      dataISO =
+      "${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}";
     }
 
     String? generoSql;
@@ -469,25 +640,75 @@ class _PerfilPageState extends State<PerfilPage> {
       'dataNascimento': dataISO,
       'genero': generoSql,
       'objetivo': _objetivo,
-      'restricao_alimentar': _restricaoAlimentarController.text.trim(),
+      'restricao_alimentar':
+      _restricaoAlimentarController.text.trim(),
       'alergia': _alergiasController.text.trim(),
       'observacao': _observacaoController.text.trim(),
-      'habitos_alimentares': _habitosAlimentaresController.text.trim(),
-      'historico_familiar_doencas': _historicoFamiliarController.text.trim(),
-      'doencas_cronicas': _doencasCronicasController.text.trim(),
-      'medicamentos_em_uso': _medicamentosController.text.trim(),
-      'exames_de_sangue_relevantes': _examesSangueController.text.trim(),
+      'habitos_alimentares':
+      _habitosAlimentaresController.text.trim(),
+      'historico_familiar_doencas':
+      _historicoFamiliarController.text.trim(),
+      'doencas_cronicas':
+      _doencasCronicasController.text.trim(),
+      'medicamentos_em_uso':
+      _medicamentosController.text.trim(),
+      'exames_de_sangue_relevantes':
+      _examesSangueController.text.trim(),
       'frequencia_exercicio_semanal': freqStr,
     };
 
     try {
       await PacienteApi().updateById(payload);
+
+      // Atualiza também o cache offline no SQLite
+      final prefs = await SharedPreferences.getInstance();
+      final pacienteId =
+          prefs.getInt('paciente_id') ?? prefs.getInt('user_id');
+
+      if (pacienteId != null) {
+        final perfilMap = <String, dynamic>{
+          'id': pacienteId,
+          'nome': _nomeController.text.trim(),
+          'email': _emailController.text.trim(),
+          'telefone': _telefoneController.text.trim(),
+          'dataNascimento': dataISO,
+          'genero': generoSql,
+          'objetivo': _objetivo,
+          'frequencia_exercicio_semanal': freqStr,
+          'restricao_alimentar':
+          _restricaoAlimentarController.text.trim(),
+          'alergia': _alergiasController.text.trim(),
+          'observacao': _observacaoController.text.trim(),
+          'habitos_alimentares':
+          _habitosAlimentaresController.text.trim(),
+          'historico_familiar_doencas':
+          _historicoFamiliarController.text.trim(),
+          'doencas_cronicas':
+          _doencasCronicasController.text.trim(),
+          'medicamentos_em_uso':
+          _medicamentosController.text.trim(),
+          'exames_de_sangue_relevantes':
+          _examesSangueController.text.trim(),
+        };
+
+        await _localDb.savePerfilPaciente(perfilMap);
+      }
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Perfil atualizado com sucesso')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Perfil atualizado com sucesso'),
+        ),
+      );
     } catch (e) {
       debugPrint('Erro ao salvar perfil: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erro ao salvar. Verifique os campos.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+            Text('Erro ao salvar. Verifique os campos.'),
+          ),
+        );
       }
     }
   }
@@ -506,12 +727,14 @@ class _PerfilPageState extends State<PerfilPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            // Regras dinâmicas com base no texto atual
             final pwd = newCtrl.text;
-            final hasUpper = RegExp(r'[A-Z]').hasMatch(pwd);
-            final hasLower = RegExp(r'[a-z]').hasMatch(pwd);
+            final hasUpper =
+            RegExp(r'[A-Z]').hasMatch(pwd);
+            final hasLower =
+            RegExp(r'[a-z]').hasMatch(pwd);
             final hasDigit = RegExp(r'\d').hasMatch(pwd);
-            final hasSpecial = RegExp(r'[^A-Za-z0-9]').hasMatch(pwd);
+            final hasSpecial =
+            RegExp(r'[^A-Za-z0-9]').hasMatch(pwd);
             final hasLen = pwd.length >= 8;
 
             Widget ruleRow(bool ok, String text) {
@@ -519,16 +742,27 @@ class _PerfilPageState extends State<PerfilPage> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(
                   children: [
-                    Icon(ok ? Icons.check_circle : Icons.radio_button_unchecked,
-                        size: 18, color: ok ? Colors.green : const Color(0xFF9E9E9E)),
+                    Icon(
+                      ok
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 18,
+                      color: ok
+                          ? Colors.green
+                          : const Color(0xFF9E9E9E),
+                    ),
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
                         text,
                         style: TextStyle(
                           fontSize: 13,
-                          color: ok ? Colors.green : const Color(0xFF6D6D6D),
-                          fontWeight: ok ? FontWeight.w600 : FontWeight.w400,
+                          color: ok
+                              ? Colors.green
+                              : const Color(0xFF6D6D6D),
+                          fontWeight: ok
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                         ),
                       ),
                     ),
@@ -550,44 +784,76 @@ class _PerfilPageState extends State<PerfilPage> {
                       style: const TextStyle(color: kText),
                       decoration: InputDecoration(
                         labelText: 'Nova senha',
-                        // Instrução resumida; a lista detalhada vem abaixo
-                        helperText: 'Deve atender às regras abaixo.',
-                        prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF9E9E9E)),
+                        helperText:
+                        'Deve atender às regras abaixo.',
+                        prefixIcon: const Icon(
+                          Icons.lock_outline,
+                          color: Color(0xFF9E9E9E),
+                        ),
                         suffixIcon: IconButton(
-                          onPressed: () => setState(() => showNew = !showNew),
-                          icon: Icon(showNew ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () => setState(
+                                  () => showNew = !showNew),
+                          icon: Icon(
+                            showNew
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                          ),
                         ),
                         filled: true,
                       ),
-                      onChanged: (_) => setState(() {}), // atualiza a lista de regras em tempo real
+                      onChanged: (_) => setState(() {}),
                       validator: (v) {
                         final value = (v ?? '');
-                        if (value.isEmpty) return 'Campo obrigatório';
-                        if (value.length < 8) return 'Mínimo 8 caracteres';
-                        if (!RegExp(r'[A-Z]').hasMatch(value)) return 'Inclua ao menos 1 letra maiúscula';
-                        if (!RegExp(r'[a-z]').hasMatch(value)) return 'Inclua ao menos 1 letra minúscula';
-                        if (!RegExp(r'\d').hasMatch(value)) return 'Inclua ao menos 1 número';
-                        if (!RegExp(r'[^A-Za-z0-9]').hasMatch(value)) return 'Inclua ao menos 1 caractere especial';
+                        if (value.isEmpty) {
+                          return 'Campo obrigatório';
+                        }
+                        if (value.length < 8) {
+                          return 'Mínimo 8 caracteres';
+                        }
+                        if (!RegExp(r'[A-Z]')
+                            .hasMatch(value)) {
+                          return 'Inclua ao menos 1 letra maiúscula';
+                        }
+                        if (!RegExp(r'[a-z]')
+                            .hasMatch(value)) {
+                          return 'Inclua ao menos 1 letra minúscula';
+                        }
+                        if (!RegExp(r'\d')
+                            .hasMatch(value)) {
+                          return 'Inclua ao menos 1 número';
+                        }
+                        if (!RegExp(r'[^A-Za-z0-9]')
+                            .hasMatch(value)) {
+                          return 'Inclua ao menos 1 caractere especial';
+                        }
                         return null;
                       },
                     ),
-
-                    // Lista de regras que ficam verdes conforme o usuário digita
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
                         children: [
-                          ruleRow(hasLen, 'Pelo menos 8 caracteres'),
-                          ruleRow(hasUpper, 'Pelo menos 1 letra maiúscula (A–Z)'),
-                          ruleRow(hasLower, 'Pelo menos 1 letra minúscula (a–z)'),
-                          ruleRow(hasDigit, 'Pelo menos 1 número (0–9)'),
-                          ruleRow(hasSpecial, 'Pelo menos 1 caractere especial (!@#\$% ...)'),
+                          ruleRow(
+                              hasLen,
+                              'Pelo menos 8 caracteres'),
+                          ruleRow(
+                              hasUpper,
+                              'Pelo menos 1 letra maiúscula (A–Z)'),
+                          ruleRow(
+                              hasLower,
+                              'Pelo menos 1 letra minúscula (a–z)'),
+                          ruleRow(
+                              hasDigit,
+                              'Pelo menos 1 número (0–9)'),
+                          ruleRow(
+                              hasSpecial,
+                              'Pelo menos 1 caractere especial (!@#\$% ...)'),
                         ],
                       ),
                     ),
-
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: confirmCtrl,
@@ -595,16 +861,30 @@ class _PerfilPageState extends State<PerfilPage> {
                       style: const TextStyle(color: kText),
                       decoration: InputDecoration(
                         labelText: 'Confirmar nova senha',
-                        prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF9E9E9E)),
+                        prefixIcon: const Icon(
+                          Icons.lock_outline,
+                          color: Color(0xFF9E9E9E),
+                        ),
                         suffixIcon: IconButton(
-                          onPressed: () => setState(() => showConfirm = !showConfirm),
-                          icon: Icon(showConfirm ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () => setState(() =>
+                          showConfirm =
+                          !showConfirm),
+                          icon: Icon(
+                            showConfirm
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                          ),
                         ),
                         filled: true,
                       ),
                       validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Campo obrigatório';
-                        if (v != newCtrl.text) return 'As senhas não coincidem';
+                        if (v == null ||
+                            v.trim().isEmpty) {
+                          return 'Campo obrigatório';
+                        }
+                        if (v != newCtrl.text) {
+                          return 'As senhas não coincidem';
+                        }
                         return null;
                       },
                     ),
@@ -613,45 +893,79 @@ class _PerfilPageState extends State<PerfilPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: submitting ? null : () => Navigator.of(context).pop(),
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.of(context).pop(),
                   child: const Text('Cancelar'),
                 ),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
                     backgroundColor: kPrimary,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                      BorderRadius.circular(10),
+                    ),
                   ),
                   onPressed: submitting
                       ? null
                       : () async {
-                    if (!(formKey.currentState?.validate() ?? false)) return;
-                    setState(() => submitting = true);
+                    if (!(formKey.currentState
+                        ?.validate() ??
+                        false)) return;
+                    setState(() =>
+                    submitting = true);
                     try {
-                      await PacienteApi().changePassword(
-                        newPassword: newCtrl.text.trim(),
-                        confirmPassword: confirmCtrl.text.trim(),
+                      await PacienteApi()
+                          .changePassword(
+                        newPassword:
+                        newCtrl.text.trim(),
+                        confirmPassword:
+                        confirmCtrl.text
+                            .trim(),
                       );
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Senha alterada com sucesso.')),
+                        ScaffoldMessenger.of(
+                            context)
+                            .showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                'Senha alterada com sucesso.'),
+                          ),
                         );
-                        Navigator.of(context).pop();
+                        Navigator.of(context)
+                            .pop();
                       }
                     } catch (e) {
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Não foi possível alterar a senha: $e')),
+                        ScaffoldMessenger.of(
+                            context)
+                            .showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Não foi possível alterar a senha: $e'),
+                          ),
                         );
                       }
                     } finally {
-                      setState(() => submitting = false);
+                      setState(() =>
+                      submitting = false);
                     }
                   },
                   icon: submitting
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.lock_reset_rounded),
-                  label: Text(submitting ? 'Alterando...' : 'Salvar'),
+                      ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                      : const Icon(
+                      Icons.lock_reset_rounded),
+                  label: Text(
+                    submitting ? 'Alterando...' : 'Salvar',
+                  ),
                 ),
               ],
             );
@@ -674,24 +988,34 @@ class _PerfilPageState extends State<PerfilPage> {
     final g = (_genero ?? '').toUpperCase().trim();
     if (g == 'M' || g == 'MASCULINO') return 'Masculino';
     if (g == 'F' || g == 'FEMININO') return 'Feminino';
-    return g.isEmpty ? '—' : g; // fallback para outros valores
+    return g.isEmpty ? '—' : g;
   }
 
   // --- Datas ---
   DateTime? _parseAnyDate(String? input) {
     if (input == null || input.isEmpty) return null;
     try {
-      final sanitized = input.contains('T') ? input.split('T').first : input;
-      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(sanitized)) {
+      final sanitized =
+      input.contains('T') ? input.split('T').first : input;
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$')
+          .hasMatch(sanitized)) {
         final p = sanitized.split('-');
-        return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+        return DateTime(
+          int.parse(p[0]),
+          int.parse(p[1]),
+          int.parse(p[2]),
+        );
       }
       return DateTime.parse(input);
     } catch (_) {
       try {
         final p = input.split('/');
         if (p.length == 3) {
-          return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
+          return DateTime(
+            int.parse(p[2]),
+            int.parse(p[1]),
+            int.parse(p[0]),
+          );
         }
       } catch (_) {}
     }
@@ -699,7 +1023,9 @@ class _PerfilPageState extends State<PerfilPage> {
   }
 
   DateTime? _parseDate(String? input) => _parseAnyDate(input);
-  String _formatDate(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  String _formatDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 }
 
 // --- Section Card ---
@@ -708,7 +1034,11 @@ class _SectionCard extends StatefulWidget {
   final List<Widget> children;
   final bool initiallyExpanded;
 
-  const _SectionCard({required this.title, required this.children, this.initiallyExpanded = false});
+  const _SectionCard({
+    required this.title,
+    required this.children,
+    this.initiallyExpanded = false,
+  });
 
   @override
   State<_SectionCard> createState() => _SectionCardState();
@@ -720,15 +1050,29 @@ class _SectionCardState extends State<_SectionCard> {
     return Card(
       elevation: 1.5,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        data: Theme.of(context)
+            .copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           initiallyExpanded: widget.initiallyExpanded,
-          trailing: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF9E9E9E)),
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          childrenPadding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-          title: Text(widget.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF444444))),
+          trailing: const Icon(
+            Icons.keyboard_arrow_down,
+            color: Color(0xFF9E9E9E),
+          ),
+          tilePadding: const EdgeInsets.symmetric(
+              horizontal: 12, vertical: 4),
+          childrenPadding:
+          const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          title: Text(
+            widget.title,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF444444),
+            ),
+          ),
           children: widget.children,
         ),
       ),

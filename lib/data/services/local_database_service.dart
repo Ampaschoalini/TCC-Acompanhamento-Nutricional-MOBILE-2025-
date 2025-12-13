@@ -18,7 +18,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6, // versão 6 para incluir todas as tabelas novas
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE user (
@@ -92,6 +92,28 @@ class LocalDatabaseService {
             UNIQUE(paciente_id, data)
           )
         ''');
+
+        // Perfil detalhado do paciente (cache offline para tela de perfil)
+        await db.execute('''
+          CREATE TABLE perfil_paciente (
+            id INTEGER PRIMARY KEY,
+            nome TEXT,
+            email TEXT,
+            telefone TEXT,
+            dataNascimento TEXT,
+            genero TEXT,
+            objetivo TEXT,
+            frequencia_exercicio_semanal TEXT,
+            restricao_alimentar TEXT,
+            alergia TEXT,
+            observacao TEXT,
+            habitos_alimentares TEXT,
+            historico_familiar_doencas TEXT,
+            doencas_cronicas TEXT,
+            medicamentos_em_uso TEXT,
+            exames_de_sangue_relevantes TEXT
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -159,31 +181,96 @@ class LocalDatabaseService {
             )
           ''');
         }
+        if (oldVersion < 6) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS perfil_paciente (
+              id INTEGER PRIMARY KEY,
+              nome TEXT,
+              email TEXT,
+              telefone TEXT,
+              dataNascimento TEXT,
+              genero TEXT,
+              objetivo TEXT,
+              frequencia_exercicio_semanal TEXT,
+              restricao_alimentar TEXT,
+              alergia TEXT,
+              observacao TEXT,
+              habitos_alimentares TEXT,
+              historico_familiar_doencas TEXT,
+              doencas_cronicas TEXT,
+              medicamentos_em_uso TEXT,
+              exames_de_sangue_relevantes TEXT
+            )
+          ''');
+        }
       },
     );
   }
 
-  // ================== USUÁRIO (LOGIN / PERFIL OFFLINE) ==================
+  // ================== USUÁRIO (LOGIN / PERFIL BÁSICO OFFLINE) ==================
 
   Future<void> saveUser(Map<String, dynamic> user) async {
     final db = await database;
+
+    // Garante que só exista UM usuário salvo no dispositivo
+    await db.delete('user');
+
     await db.insert(
       'user',
       user,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+
+    print('[SQLite] Usuário salvo/local atualizado: ${user['email']}');
   }
 
   Future<Map<String, dynamic>?> getUserByEmailAndPassword(
       String email, String senha) async {
     final db = await database;
+
+    // 1) Busca pelo e-mail (pode haver versões antigas sem senha salva)
     final result = await db.query(
       'user',
-      where: 'email = ? AND senha = ?',
-      whereArgs: [email, senha],
+      where: 'email = ?',
+      whereArgs: [email],
       limit: 1,
     );
-    return result.isNotEmpty ? result.first : null;
+
+    if (result.isEmpty) {
+      print('[SQLite] Nenhum usuário encontrado com email=$email');
+      return null;
+    }
+
+    final user = Map<String, dynamic>.from(result.first);
+    final String? senhaSalva = user['senha'] as String?;
+
+    print('[SQLite] loginOffline email=$email senhaDigitada=$senha senhaSalva=$senhaSalva');
+
+    // 2) Caso legado: não havia senha salva no SQLite
+    if (senhaSalva == null || senhaSalva.isEmpty) {
+      print('[SQLite] Sem senha salva (versão antiga). Permitindo login e atualizando senha local.');
+
+      // Atualiza a senha local para passar a validar corretamente nas próximas vezes
+      await db.update(
+        'user',
+        {'senha': senha},
+        where: 'id = ?',
+        whereArgs: [user['id']],
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+
+      user['senha'] = senha;
+      return user;
+    }
+
+    // 3) Já existe senha salva -> valida normalmente
+    if (senhaSalva == senha) {
+      print('[SQLite] Senha correta para $email. Login offline permitido.');
+      return user;
+    }
+
+    print('[SQLite] Senha incorreta para $email. Login offline negado.');
+    return null;
   }
 
   Future<Map<String, dynamic>?> getUserByEmail(String email) async {
@@ -197,7 +284,7 @@ class LocalDatabaseService {
     return res.isNotEmpty ? res.first : null;
   }
 
-  /// usado para fallback offline do perfil
+  /// usado para fallback offline simples pelo ID
   Future<Map<String, dynamic>?> getUserById(int id) async {
     final db = await database;
     final res = await db.query(
@@ -290,6 +377,29 @@ class LocalDatabaseService {
   Future<void> clearUser() async {
     final db = await database;
     await db.delete('user');
+  }
+
+  // ================== PERFIL PACIENTE (cache offline detalhado) ==================
+
+  Future<void> savePerfilPaciente(Map<String, dynamic> perfil) async {
+    final db = await database;
+
+    await db.insert(
+      'perfil_paciente',
+      perfil,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getPerfilPaciente(int id) async {
+    final db = await database;
+    final res = await db.query(
+      'perfil_paciente',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return res.isNotEmpty ? res.first : null;
   }
 
   // ================== ALIMENTOS DO PLANO (CACHE OFFLINE) ==================

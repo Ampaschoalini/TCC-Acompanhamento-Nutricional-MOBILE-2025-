@@ -125,14 +125,19 @@ class _RegistroPageState extends State<RegistroPage> {
     _pacienteId = prefs.getInt('paciente_id') ?? 0;
     _token = prefs.getString('token');
 
-    _pesoLogs = _readLogsMap(prefs.getString('logs_peso'));
-    _cinturaLogs = _readLogsMap(prefs.getString('logs_cintura'));
-    _quadrilLogs = _readLogsMap(prefs.getString('logs_quadril'));
-    _bracoLogs = _readLogsMap(prefs.getString('logs_braco'));
-    _pernaLogs = _readLogsMap(prefs.getString('logs_perna'));
+    _pesoLogs = _readLogsMap(prefs.getString(_logsKey('peso')));
+    _cinturaLogs = _readLogsMap(prefs.getString(_logsKey('cintura')));
+    _quadrilLogs = _readLogsMap(prefs.getString(_logsKey('quadril')));
+    _bracoLogs = _readLogsMap(prefs.getString(_logsKey('braco')));
+    _pernaLogs = _readLogsMap(prefs.getString(_logsKey('perna')));
 
     _syncControllersFromState();
     if (mounted) setState(() {});
+  }
+
+  String _logsKey(String tipo) {
+    final id = _pacienteId ?? 0;
+    return 'logs_${tipo}_$id';
   }
 
   Map<String, double> _readLogsMap(String? raw) {
@@ -395,7 +400,7 @@ class _RegistroPageState extends State<RegistroPage> {
   Future<void> _registrarPesoNoDia(DateTime d, double valor) async {
     final k = _keyFor(d);
     setState(() => _pesoLogs[k] = valor);
-    await _writeLogsMap('logs_peso', _pesoLogs);
+    await _writeLogsMap(_logsKey('peso'), _pesoLogs);
     await _salvarRegistroDiarioNoSQLite(d);
   }
 
@@ -420,16 +425,16 @@ class _RegistroPageState extends State<RegistroPage> {
     });
     switch (kind) {
       case MedidaKind.cintura:
-        await _writeLogsMap('logs_cintura', _cinturaLogs);
+        await _writeLogsMap(_logsKey('cintura'), _cinturaLogs);
         break;
       case MedidaKind.quadril:
-        await _writeLogsMap('logs_quadril', _quadrilLogs);
+        await _writeLogsMap(_logsKey('quadril'), _quadrilLogs);
         break;
       case MedidaKind.braco:
-        await _writeLogsMap('logs_braco', _bracoLogs);
+        await _writeLogsMap(_logsKey('braco'), _bracoLogs);
         break;
       case MedidaKind.perna:
-        await _writeLogsMap('logs_perna', _pernaLogs);
+        await _writeLogsMap(_logsKey('perna'), _pernaLogs);
         break;
     }
 

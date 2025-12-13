@@ -33,8 +33,7 @@ class PlanoAlimentarService {
       final locais = await _localDb.getPlano(pacienteId);
       if (locais.isNotEmpty) return locais;
 
-      final qualquer = await _localDb.getQualquerPlano();
-      return qualquer;
+      return [];
     }
 
     List<Dieta> dietas;
@@ -45,16 +44,14 @@ class PlanoAlimentarService {
       final locais = await _localDb.getPlano(pacienteId);
       if (locais.isNotEmpty) return locais;
 
-      final qualquer = await _localDb.getQualquerPlano();
-      return qualquer;
+      return [];
     }
 
     if (dietas.isEmpty) {
       final locais = await _localDb.getPlano(pacienteId);
       if (locais.isNotEmpty) return locais;
 
-      final qualquer = await _localDb.getQualquerPlano();
-      return qualquer;
+      return [];
     }
 
     await _localDb.salvarPlano(pacienteId, dietas);
